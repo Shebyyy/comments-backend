@@ -68,8 +68,10 @@ export async function POST(request: NextRequest) {
     // Upsert vote (insert or update)
     const existingVote = await db.vote.findUnique({
       where: {
-        comment_id: comment_id,
-        user_id: anilistUser.id
+        comment_id_user_id: {
+           comment_id: comment_id,
+            user_id: anilistUser.id
+        }
       }
     });
 
@@ -80,8 +82,10 @@ export async function POST(request: NextRequest) {
         // Remove vote if same vote type
         await db.vote.delete({
           where: {
+            comment_id_user_id: {
             comment_id: comment_id,
             user_id: anilistUser.id
+           }
           }
         });
         vote = null;
