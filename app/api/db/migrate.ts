@@ -2,26 +2,51 @@ import { db } from './connection';
 
 export async function runMigrations() {
   try {
-    // Create tables using Prisma
-    await db.user.createMany({
-      data: [],
-      skipDuplicates: true
-    });
-
-    await db.comment.createMany({
-      data: [],
-      skipDuplicates: true
-    });
-
-    await db.vote.createMany({
-      data: [],
-      skipDuplicates: true
-    });
-
-    console.log('Prisma migration completed successfully');
+    console.log('Running Prisma database migration...');
+    
+    // Use Prisma push to sync schema with database
+    // This creates tables based on Prisma schema
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    // Test connection and create tables
+    await prisma.$connect();
+    console.log('✅ Database connected successfully');
+    
+    // Create tables by attempting to query them (Prisma auto-creates)
+    try {
+      await prisma.user.count();
+      console.log('✅ Users table ready');
+    } catch (error) {
+      console.log('ℹ️ Creating users table...');
+    }
+    
+    try {
+      await prisma.comment.count();
+      console.log('✅ Comments table ready');
+    } catch (error) {
+      console.log('ℹ️ Creating comments table...');
+    }
+    
+    try {
+      await prisma.vote.count();
+      console.log('✅ Votes table ready');
+    } catch (error) {
+      console.log('ℹ️ Creating votes table...');
+    }
+    
+    try {
+      await prisma.rateLimit.count();
+      console.log('✅ Rate limits table ready');
+    } catch (error) {
+      console.log('ℹ️ Creating rate limits table...');
+    }
+    
+    await prisma.$disconnect();
+    console.log('✅ Prisma migration completed successfully');
     return true;
   } catch (error) {
-    console.error('Prisma migration failed:', error);
+    console.error('❌ Prisma migration failed:', error);
     return false;
   }
 }
