@@ -57,9 +57,9 @@ export interface CommentVote {
 
 export interface CreateCommentRequest {
   media_id: number;
+  media_type?: MediaType;
   content: string;
   parent_comment_id?: string;
-  tag?: string;
 }
 
 export interface VoteRequest {
