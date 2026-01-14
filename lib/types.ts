@@ -19,31 +19,37 @@ export interface User {
   last_active: Date;
 }
 
+export enum MediaType {
+  ANIME = 'ANIME',
+  MANGA = 'MANGA'
+}
+
 export interface Comment {
-  comment_id: string;
-  user_id: number;
+  id: string;
+  anilist_user_id: number;
   media_id: number;
+  media_type: MediaType;
   parent_comment_id?: string;
   content: string;
-  tag: string;
-  created_at: Date;
-  updated_at: Date;
-  deleted: boolean;
-  deleted_at?: Date;
   upvotes: number;
   downvotes: number;
-  total_votes: number;
+  is_deleted: boolean;
+  created_at: Date;
+  updated_at: Date;
   username: string;
   profile_picture_url?: string;
   is_mod: boolean;
   is_admin: boolean;
-  reply_count: number;
-  user_vote_type?: number;
+  user?: {
+    anilist_user_id: number;
+    is_mod: boolean;
+    is_admin: boolean;
+  };
   replies?: Comment[];
 }
 
 export interface CommentVote {
-  vote_id: string;
+  id: string;
   comment_id: string;
   user_id: number;
   vote_type: -1 | 1;

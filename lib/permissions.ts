@@ -39,7 +39,7 @@ export function hasPermission(user: User, permission: Permission): boolean {
 
 export function canDeleteComment(comment: Comment, user: User): boolean {
   // User can delete their own comment
-  if (comment.user_id === user.anilist_user_id) {
+  if (comment.anilist_user_id === user.anilist_user_id) {
     return true;
   }
   
@@ -58,5 +58,5 @@ export function canDeleteComment(comment: Comment, user: User): boolean {
 
 export function canEditComment(comment: Comment, user: User): boolean {
   // Only original author can edit, and only if not deleted
-  return comment.user_id === user.anilist_user_id && !comment.deleted;
+  return comment.anilist_user_id === user.anilist_user_id && !comment.is_deleted;
 }

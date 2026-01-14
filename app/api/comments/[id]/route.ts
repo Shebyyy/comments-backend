@@ -43,7 +43,9 @@ export async function DELETE(
           select: {
             anilist_user_id: true,
             is_mod: true,
-            is_admin: true
+            is_admin: true,
+            username: true,
+            profile_picture_url: true
           }
         }
       }
@@ -55,6 +57,15 @@ export async function DELETE(
         error: 'Comment not found'
       }, { status: 404 });
     }
+
+    // Transform to match Comment interface
+    const transformedComment = {
+      ...comment,
+      username: comment.user.username,
+      profile_picture_url: comment.user.profile_picture_url,
+      is_mod: comment.user.is_mod,
+      is_admin: comment.user.is_admin
+    };
 
     const requestingUser = {
       anilist_user_id: anilistUser.id,
@@ -68,7 +79,7 @@ export async function DELETE(
     };
 
     // Check permissions
-    if (!canDeleteComment(comment, requestingUser)) {
+    if (!canDeleteComment(transformedComment, requestingUser)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Insufficient permissions to delete this comment'
@@ -76,7 +87,7 @@ export async function DELETE(
     }
 
     // Soft delete the comment
-    const deleteReason = comment.anilist_user_id === anilistUser.id 
+    const deleteReason = transformedComment.anilist_user_id === anilistUser.id 
       ? '[deleted by user]' 
       : '[deleted by moderator]';
 
