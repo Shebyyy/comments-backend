@@ -29,8 +29,8 @@ model User {
   votes             Vote[]
   reports           Report[]
   bans_given        Ban[]
-  warnings_received Warning[]
-  warnings_given    Warning[]
+  warnings_received Warning[] @relation("WarningsReceived")
+  warnings_given    Warning[] @relation("WarningsGiven")
 
   @@map("users")
 }
@@ -131,8 +131,8 @@ model Warning {
   is_active         Boolean   @default(true)
   created_at        DateTime  @default(now())
 
-  warned_user       User      @relation(fields: [user_id], references: [anilist_user_id])
-  warner            User      @relation(fields: [warned_by], references: [anilist_user_id])
+  warned_user       User      @relation("WarningsReceived", fields: [user_id], references: [anilist_user_id])
+  warner            User      @relation("WarningsGiven", fields: [warned_by], references: [anilist_user_id])
 
   @@map("warnings")
 }
