@@ -1,157 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
-import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
+import { verifyAniListToken } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { CreateCommentRequest, Comment, ApiResponse } from '@/lib/types';
-
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const mediaId = searchParams.get('media_id');
-    const mediaType = searchParams.get('media_type') || 'ANIME';
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
-    const sortBy = searchParams.get('sort') || 'newest';
-    const parentId = searchParams.get('parent_id');
-
-    if (!mediaId) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'media_id is required'
-      }, { status: 400 });
-    }
-
-    const mediaIdNum = parseInt(mediaId);
-    if (isNaN(mediaIdNum)) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Invalid media_id'
-      }, { status: 400 });
-    }
-
-    // Get auth token (optional for read access)
-    const authHeader = request.headers.get('authorization');
-    let userId: number | null = null;
-    
-    if (authHeader) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const anilistUser = await verifyAniListToken(token);
-        userId = anilistUser.id;
-      } catch (error) {
-        // Token verification failed, but allow read access
-        console.warn('Optional auth failed:', error);
-      }
-    }
-
-    const offset = (page - 1) * limit;
-
-    // Build where clause
-    const whereClause: any = {
-      media_id: mediaIdNum,
-      media_type: mediaType,
-      parent_comment_id: parentId || null,
-      is_deleted: false
-    };
-
-    // Build order by
-    let orderBy: any = { created_at: 'desc' };
-    if (sortBy === 'top') {
-      orderBy = [
-        { upvotes: 'desc' },
-        { created_at: 'desc' }
-      ];
-    } else if (sortBy === 'oldest') {
-      orderBy = { created_at: 'asc' };
-    }
-
-    // Fetch comments
-    const comments = await db.comment.findMany({
-      where: whereClause,
-      orderBy,
-      include: {
-        user: true,
-        votes: userId ? {
-          where: { user_id: userId }
-        } : false,
-        replies: {
-          where: { is_deleted: false },
-          orderBy: { created_at: 'asc' },
-          take: 10,
-          include: {
-            user: true,
-            votes: userId ? {
-              where: { user_id: userId }
-            } : false
-          }
-        }
-      },
-      skip: offset,
-      take: limit
-    });
-
-    // Get total count
-    const total = await db.comment.count({
-      where: whereClause
-    });
-
-    // Format response
-    const formattedComments = comments.map(comment => ({
-      id: comment.id,
-      media_id: comment.media_id,
-      media_type: comment.media_type,
-      content: comment.content,
-      anilist_user_id: comment.anilist_user_id,
-      parent_comment_id: comment.parent_comment_id,
-      upvotes: comment.upvotes,
-      downvotes: comment.downvotes,
-      user_vote: comment.votes.length > 0 ? comment.votes[0].vote_type : 0,
-      is_mod: comment.user.is_mod,
-      is_admin: comment.user.is_admin,
-      is_deleted: comment.is_deleted,
-      created_at: comment.created_at,
-      updated_at: comment.updated_at,
-      username: comment.user.username,
-      profile_picture_url: comment.user.profile_picture_url,
-      replies: comment.replies.map(reply => ({
-        id: reply.id,
-        media_id: reply.media_id,
-        media_type: reply.media_type,
-        content: reply.content,
-        anilist_user_id: reply.anilist_user_id,
-        parent_comment_id: reply.parent_comment_id,
-        upvotes: reply.upvotes,
-        downvotes: reply.downvotes,
-        user_vote: reply.votes.length > 0 ? reply.votes[0].vote_type : 0,
-        is_mod: reply.user.is_mod,
-        is_admin: reply.user.is_admin,
-        is_deleted: reply.is_deleted,
-        created_at: reply.created_at,
-        updated_at: reply.updated_at,
-        username: reply.user.username,
-        profile_picture_url: reply.user.profile_picture_url
-      }))
-    }));
-
-    return NextResponse.json<ApiResponse>({
-      success: true,
-      data: {
-        comments: formattedComments,
-        hasMore: offset + comments.length < total,
-        total,
-        page,
-        limit
-      }
-    });
-
-  } catch (error) {
-    console.error('GET comments error:', error);
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Internal server error'
-    }, { status: 500 });
-  }
-}
+import { VoteRequest, ApiResponse } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -167,100 +18,132 @@ export async function POST(request: NextRequest) {
     const anilistUser = await verifyAniListToken(token);
     
     // Check rate limit
-    await checkRateLimit(anilistUser.id, 'comment', db);
+    await checkRateLimit(anilistUser.id, 'vote', db);
 
-    // Upsert user
-    const user = await upsertUser(anilistUser, db);
-
-    const body: CreateCommentRequest = await request.json();
-    const { media_id, media_type, content, parent_comment_id } = body;
+    const body: VoteRequest = await request.json();
+    const { comment_id, vote_type } = body;
 
     // Validate input
-    if (!media_id || !content || content.trim().length === 0) {
+    if (!comment_id || !vote_type) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'media_id and content are required'
+        error: 'comment_id and vote_type are required'
       }, { status: 400 });
     }
 
-    if (content.length > 2000) {
+    if (![1, -1].includes(vote_type)) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'Comment content too long (max 2000 characters)'
+        error: 'vote_type must be 1 (upvote) or -1 (downvote)'
       }, { status: 400 });
     }
 
-    // Check if parent comment exists (if provided)
-    if (parent_comment_id) {
-      const parentComment = await db.comment.findUnique({
-        where: { id: parent_comment_id }
-      });
+    // Check if comment exists and is not deleted
+    const comment = await db.comment.findUnique({
+      where: { id: comment_id }
+    });
 
-      if (!parentComment) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: 'Parent comment not found'
-        }, { status: 404 });
-      }
-
-      if (parentComment.is_deleted) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: 'Cannot reply to deleted comment'
-        }, { status: 400 });
-      }
-
-      if (parentComment.media_id !== media_id) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: 'Parent comment media_id mismatch'
-        }, { status: 400 });
-      }
+    if (!comment) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Comment not found'
+      }, { status: 404 });
     }
 
-    // Create comment
-    const newComment = await db.comment.create({
-      data: {
-        media_id: media_id,
-        media_type: media_type || 'ANIME',
-        content: content.trim(),
-        anilist_user_id: user.anilist_user_id,
-        parent_comment_id: parent_comment_id || null
-      },
-      include: {
-        user: true
+    if (comment.is_deleted) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Cannot vote on deleted comment'
+      }, { status: 400 });
+    }
+
+    // Prevent voting on own comments
+    if (comment.anilist_user_id === anilistUser.id) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Cannot vote on your own comment'
+      }, { status: 400 });
+    }
+
+    // Upsert vote (insert or update)
+    const existingVote = await db.vote.findUnique({
+      where: {
+        comment_id_user_id: {
+          comment_id: comment_id,
+          user_id: anilistUser.id
+        }
       }
     });
 
-    // Format response
-    const formattedComment = {
-      id: newComment.id,
-      media_id: newComment.media_id,
-      media_type: newComment.media_type,
-      content: newComment.content,
-      anilist_user_id: newComment.anilist_user_id,
-      parent_comment_id: newComment.parent_comment_id,
-      upvotes: newComment.upvotes,
-      downvotes: newComment.downvotes,
-      user_vote: 0,
-      is_mod: newComment.user.is_mod,
-      is_admin: newComment.user.is_admin,
-      is_deleted: newComment.is_deleted,
-      created_at: newComment.created_at,
-      updated_at: newComment.updated_at,
-      username: newComment.user.username,
-      profile_picture_url: newComment.user.profile_picture_url,
-      replies: []
-    };
+    let vote;
+    if (existingVote) {
+      // Update existing vote
+      if (existingVote.vote_type === vote_type) {
+        // Remove vote if same vote type
+        await db.vote.delete({
+          where: {
+            comment_id_user_id: {
+              comment_id: comment_id,
+              user_id: anilistUser.id
+            }
+          }
+        });
+        vote = null;
+      } else {
+        // Update vote type
+        vote = await db.vote.update({
+          where: {
+            comment_id_user_id: {
+              comment_id: comment_id,
+              user_id: anilistUser.id
+            }
+          },
+          data: {
+            vote_type: vote_type
+          }
+        });
+      }
+    } else {
+      // Create new vote
+      vote = await db.vote.create({
+        data: {
+          comment_id: comment_id,
+          user_id: anilistUser.id,
+          vote_type: vote_type
+        }
+      });
+    }
 
-    return NextResponse.json<ApiResponse>({
+    // Update comment vote counts
+    const votes = await db.vote.findMany({
+      where: { comment_id: comment_id }
+    });
+
+    const upvotes = votes.filter(v => v.vote_type === 1).length;
+    const downvotes = votes.filter(v => v.vote_type === -1).length;
+
+    // Update comment with new vote counts
+    await db.comment.update({
+      where: { id: comment_id },
+      data: {
+        upvotes,
+        downvotes
+      }
+    });
+
+    return NextResponse<ApiResponse>({
       success: true,
-      data: formattedComment,
-      message: 'Comment created successfully'
-    }, { status: 201 });
+      data: {
+        vote_type: vote ? vote.vote_type : 0,
+        upvotes,
+        downvotes,
+        total_votes: upvotes + downvotes
+      },
+      message: vote ? 'Vote recorded successfully' : 'Vote removed successfully'
+    });
 
   } catch (error) {
-    console.error('POST comments error:', error);
+    console.error('POST vote error:', error);
     
     if (error instanceof Error) {
       if (error.message.includes('Rate limit')) {
