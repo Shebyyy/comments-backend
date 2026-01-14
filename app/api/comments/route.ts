@@ -2,17 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { CreateCommentRequest, Comment, ApiResponse } from '@/lib/types';
+import { CreateCommentRequest, ApiResponse } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const mediaId = searchParams.get('media_id');
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50); // Max 50 per request
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
     const tag = searchParams.get('tag') || 'general';
     const sortBy = searchParams.get('sort') || 'newest';
-    const parentId = searchParams.get('parent_id');
 
     if (!mediaId) {
       return NextResponse.json<ApiResponse>({
@@ -39,59 +38,86 @@ export async function GET(request: NextRequest) {
         const anilistUser = await verifyAniListToken(token);
         userId = anilistUser.id;
       } catch (error) {
-        // Token verification failed, but allow read access
         console.warn('Optional auth failed:', error);
       }
     }
 
-    // Build query
-    let orderBy = 'ORDER BY c.created_at DESC';
-    if (sortBy === 'top') {
-      orderBy = 'ORDER BY c.total_votes DESC, c.created_at DESC';
-    } else if (sortBy === 'oldest') {
-      orderBy = 'ORDER BY c.created_at ASC';
-    }
-
     const offset = (page - 1) * limit;
 
-    const query = `
-      SELECT 
-        c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
-        c.content, c.tag, c.created_at, c.updated_at, c.deleted,
-        c.upvotes, c.downvotes, c.total_votes, c.reply_count,
-        c.username, c.profile_picture_url, c.is_mod, c.is_admin,
-        cv.vote_type as user_vote_type
-      FROM comments c
-      LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
-        AND cv.user_id = $1
-      WHERE c.media_id = $2 
-        AND c.parent_comment_id IS NULL 
-        AND c.tag = $3 
-        AND c.deleted = FALSE
-      ${orderBy}
-      LIMIT $4 OFFSET $5
-    `;
-
-    const commentsResult = await db.query(query, [
-      userId, mediaIdNum, tag, limit, offset
-    ]);
+    // Fetch comments based on sort order
+    let commentsResult;
+    if (sortBy === 'top') {
+      commentsResult = await db`
+        SELECT 
+          c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
+          c.content, c.tag, c.created_at, c.updated_at, c.deleted,
+          c.upvotes, c.downvotes, c.total_votes, c.reply_count,
+          c.username, c.profile_picture_url, c.is_mod, c.is_admin,
+          cv.vote_type as user_vote_type
+        FROM comments c
+        LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
+          AND cv.user_id = ${userId}
+        WHERE c.media_id = ${mediaIdNum}
+          AND c.parent_comment_id IS NULL 
+          AND c.tag = ${tag}
+          AND c.deleted = FALSE
+        ORDER BY c.total_votes DESC, c.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else if (sortBy === 'oldest') {
+      commentsResult = await db`
+        SELECT 
+          c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
+          c.content, c.tag, c.created_at, c.updated_at, c.deleted,
+          c.upvotes, c.downvotes, c.total_votes, c.reply_count,
+          c.username, c.profile_picture_url, c.is_mod, c.is_admin,
+          cv.vote_type as user_vote_type
+        FROM comments c
+        LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
+          AND cv.user_id = ${userId}
+        WHERE c.media_id = ${mediaIdNum}
+          AND c.parent_comment_id IS NULL 
+          AND c.tag = ${tag}
+          AND c.deleted = FALSE
+        ORDER BY c.created_at ASC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else {
+      commentsResult = await db`
+        SELECT 
+          c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
+          c.content, c.tag, c.created_at, c.updated_at, c.deleted,
+          c.upvotes, c.downvotes, c.total_votes, c.reply_count,
+          c.username, c.profile_picture_url, c.is_mod, c.is_admin,
+          cv.vote_type as user_vote_type
+        FROM comments c
+        LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
+          AND cv.user_id = ${userId}
+        WHERE c.media_id = ${mediaIdNum}
+          AND c.parent_comment_id IS NULL 
+          AND c.tag = ${tag}
+          AND c.deleted = FALSE
+        ORDER BY c.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    }
 
     // Get total count
-    const countResult = await db.query(`
+    const countResult = await db`
       SELECT COUNT(*) as total
       FROM comments c
-      WHERE c.media_id = $1 
+      WHERE c.media_id = ${mediaIdNum}
         AND c.parent_comment_id IS NULL 
-        AND c.tag = $2 
+        AND c.tag = ${tag}
         AND c.deleted = FALSE
-    `, [mediaIdNum, tag]);
+    `;
 
     const total = parseInt(countResult.rows[0].total);
 
     // Fetch replies for each comment
     const commentsWithReplies = await Promise.all(
-      commentsResult.rows.map(async (comment) => {
-        const repliesQuery = `
+      commentsResult.rows.map(async (comment: any) => {
+        const repliesResult = await db`
           SELECT 
             c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
             c.content, c.tag, c.created_at, c.updated_at, c.deleted,
@@ -100,23 +126,16 @@ export async function GET(request: NextRequest) {
             cv.vote_type as user_vote_type
           FROM comments c
           LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
-            AND cv.user_id = $1
-          WHERE c.parent_comment_id = $2 AND c.deleted = FALSE
+            AND cv.user_id = ${userId}
+          WHERE c.parent_comment_id = ${comment.comment_id} 
+            AND c.deleted = FALSE
           ORDER BY c.created_at ASC
           LIMIT 10
         `;
 
-        const repliesResult = await db.query(repliesQuery, [userId, comment.comment_id]);
-
         return {
           ...comment,
-          created_at: comment.created_at,
-          updated_at: comment.updated_at,
-          replies: repliesResult.rows.map(reply => ({
-            ...reply,
-            created_at: reply.created_at,
-            updated_at: reply.updated_at
-          }))
+          replies: repliesResult.rows
         };
       })
     );
@@ -155,10 +174,10 @@ export async function POST(request: NextRequest) {
     const anilistUser = await verifyAniListToken(token);
     
     // Check rate limit
-    await checkRateLimit(anilistUser.id, 'comment', db);
+    await checkRateLimit(anilistUser.id, 'comment');
 
     // Upsert user
-    const user = await upsertUser(anilistUser, db);
+    const user = await upsertUser(anilistUser);
 
     const body: CreateCommentRequest = await request.json();
     const { media_id, content, parent_comment_id, tag = 'general' } = body;
@@ -178,12 +197,13 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Check if parent comment exists (if provided)
+    // Check if parent comment exists
     if (parent_comment_id) {
-      const parentResult = await db.query(`
-        SELECT comment_id, media_id, deleted FROM comments 
-        WHERE comment_id = $1
-      `, [parent_comment_id]);
+      const parentResult = await db`
+        SELECT comment_id, media_id, deleted 
+        FROM comments 
+        WHERE comment_id = ${parent_comment_id}
+      `;
 
       if (parentResult.rows.length === 0) {
         return NextResponse.json<ApiResponse>({
@@ -209,30 +229,26 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert comment
-    const insertQuery = `
+    const result = await db`
       INSERT INTO comments (
         user_id, media_id, parent_comment_id, content, tag,
         username, profile_picture_url, is_mod, is_admin
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ) VALUES (
+        ${user.anilist_user_id},
+        ${media_id},
+        ${parent_comment_id || null},
+        ${content.trim()},
+        ${tag},
+        ${user.username},
+        ${user.profile_picture_url || null},
+        ${user.is_mod},
+        ${user.is_admin}
+      )
       RETURNING *
     `;
 
-    const result = await db.query(insertQuery, [
-      user.anilist_user_id,
-      media_id,
-      parent_comment_id || null,
-      content.trim(),
-      tag,
-      user.username,
-      user.profile_picture_url,
-      user.is_mod,
-      user.is_admin
-    ]);
-
     const newComment = {
       ...result.rows[0],
-      created_at: result.rows[0].created_at,
-      updated_at: result.rows[0].updated_at,
       user_vote_type: null,
       replies: []
     };
