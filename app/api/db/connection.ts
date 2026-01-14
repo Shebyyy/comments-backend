@@ -1,10 +1,10 @@
-import { sql } from '@vercel/postgres';
+import { createClient } from '@vercel/postgres';
 
-export const db = sql;
+export const db = createClient();
 
 export async function testConnection() {
   try {
-    const result = await sql`SELECT NOW()`;
+    const result = await db`SELECT NOW()`;
     console.log('Database connected:', result.rows[0]);
     return true;
   } catch (error) {
