@@ -50,8 +50,13 @@ export async function DELETE(
     const comment = commentResult.rows[0];
     const requestingUser = {
       anilist_user_id: anilistUser.id,
+      username: anilistUser.name,
+      profile_picture_url: anilistUser.avatar?.large || anilistUser.avatar?.medium,
       is_mod: anilistUser.moderatorStatus === 'MODERATOR' || anilistUser.moderatorStatus === 'ADMIN',
-      is_admin: anilistUser.moderatorStatus === 'ADMIN'
+      is_admin: anilistUser.moderatorStatus === 'ADMIN',
+      created_at: new Date(),
+      updated_at: new Date(),
+      last_active: new Date()
     };
 
     // Check permissions
