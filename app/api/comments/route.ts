@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
         user: true,
         votes: userId ? {
           where: { user_id: userId }
-        } : false,
+        } : true,
         replies: {
           where: { is_deleted: false },
           orderBy: { created_at: 'asc' },
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
             user: true,
             votes: userId ? {
               where: { user_id: userId }
-            } : false
+            } : true
           }
         }
       },
@@ -105,14 +105,14 @@ export async function GET(request: NextRequest) {
       parent_comment_id: comment.parent_comment_id,
       upvotes: comment.upvotes,
       downvotes: comment.downvotes,
-      user_vote: comment.votes.length > 0 ? comment.votes[0].vote_type : 0,
-      is_mod: comment.user.is_mod,
-      is_admin: comment.user.is_admin,
+      user_vote: (comment.votes && comment.votes.length > 0) ? comment.votes[0].vote_type : 0,
+      is_mod: comment.user?.is_mod || false,
+      is_admin: comment.user?.is_admin || false,
       is_deleted: comment.is_deleted,
       created_at: comment.created_at,
       updated_at: comment.updated_at,
-      username: comment.user.username,
-      profile_picture_url: comment.user.profile_picture_url,
+      username: comment.user?.username || 'Unknown',
+      profile_picture_url: comment.user?.profile_picture_url || null,
       replies: comment.replies.map(reply => ({
         id: reply.id,
         media_id: reply.media_id,
@@ -122,14 +122,14 @@ export async function GET(request: NextRequest) {
         parent_comment_id: reply.parent_comment_id,
         upvotes: reply.upvotes,
         downvotes: reply.downvotes,
-        user_vote: reply.votes.length > 0 ? reply.votes[0].vote_type : 0,
-        is_mod: reply.user.is_mod,
-        is_admin: reply.user.is_admin,
+        user_vote: (reply.votes && reply.votes.length > 0) ? reply.votes[0].vote_type : 0,
+        is_mod: reply.user?.is_mod || false,
+        is_admin: reply.user?.is_admin || false,
         is_deleted: reply.is_deleted,
         created_at: reply.created_at,
         updated_at: reply.updated_at,
-        username: reply.user.username,
-        profile_picture_url: reply.user.profile_picture_url
+        username: reply.user?.username || 'Unknown',
+        profile_picture_url: reply.user?.profile_picture_url || null
       }))
     }));
 
