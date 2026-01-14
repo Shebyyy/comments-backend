@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    return NextResponse<ApiResponse>({
+    return NextResponse.json<ApiResponse>({
       success: true,
       data: {
         vote_type: vote ? vote.vote_type : 0,
