@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/app/db/connection';
-import { verifyAniListToken } from '@/app/auth/verify';
+import { db } from '@/app/api/db/connection';
+import { verifyAniListToken } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { canDeleteComment } from '@/lib/permissions';
 import { ApiResponse } from '@/lib/types';
