@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
       }
 
-      if (parentComment.media_id !== parseInt(media_id)) {
+      if (parentComment.media_id !== media_id) {
         return NextResponse.json<ApiResponse>({
           success: false,
           error: 'Parent comment media_id mismatch'
@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
     // Create comment
     const newComment = await db.comment.create({
       data: {
-        media_id: parseInt(media_id),
+        media_id: media_id,
         media_type: media_type || 'ANIME',
         content: content.trim(),
         anilist_user_id: user.anilist_user_id,
