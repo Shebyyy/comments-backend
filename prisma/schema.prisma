@@ -25,10 +25,11 @@ model User {
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
-  comments          Comment[]
-  votes             Vote[]
-  reports           Report[]
-  bans_given        Ban[]
+  comments          Comment[] @relation("UserComments")
+  votes             Vote[] @relation("UserVotes")
+  reports           Report[] @relation("UserReports")
+  bans_given        Ban[] @relation("BansGiven")
+  bans_received     Ban[] @relation("BansReceived")
   warnings_received Warning[] @relation("WarningsReceived")
   warnings_given    Warning[] @relation("WarningsGiven")
 
@@ -50,7 +51,7 @@ model Comment {
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
-  user              User      @relation(fields: [anilist_user_id], references: [anilist_user_id])
+  user              User      @relation("UserComments", fields: [anilist_user_id], references: [anilist_user_id])
   parent_comment     Comment?  @relation("CommentReplies", fields: [parent_comment_id], references: [id])
   replies           Comment[] @relation("CommentReplies")
   votes             Vote[]
@@ -66,7 +67,7 @@ model Vote {
   vote_type  Int        // 1 for upvote, -1 for downvote
   created_at DateTime   @default(now())
 
-  user       User       @relation(fields: [user_id], references: [anilist_user_id])
+  user       User       @relation("UserVotes", fields: [user_id], references: [anilist_user_id])
   comment    Comment    @relation(fields: [comment_id], references: [id])
 
   @@unique([comment_id, user_id])
@@ -99,7 +100,7 @@ model Report {
   updated_at        DateTime  @updatedAt
 
   comment           Comment   @relation(fields: [comment_id], references: [id])
-  reporter          User      @relation(fields: [reporter_user_id], references: [anilist_user_id])
+  reporter          User      @relation("UserReports", fields: [reporter_user_id], references: [anilist_user_id])
 
   @@unique([comment_id, reporter_user_id])
   @@map("reports")
@@ -116,8 +117,8 @@ model Ban {
   created_at    DateTime  @default(now())
   expires_at    DateTime?
 
-  banned_user   User      @relation(fields: [user_id], references: [anilist_user_id])
-  banner        User      @relation(fields: [banned_by], references: [anilist_user_id])
+  banned_user   User      @relation("BansReceived", fields: [user_id], references: [anilist_user_id])
+  banner        User      @relation("BansGiven", fields: [banned_by], references: [anilist_user_id])
 
   @@map("bans")
 }
