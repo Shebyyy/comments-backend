@@ -225,10 +225,7 @@ export async function POST(request: NextRequest) {
         media_type: media_type || 'ANIME',
         content: content.trim(),
         anilist_user_id: user.anilist_user_id,
-        parent_comment_id: parent_comment_id || null,
-        user: {
-          connect: { anilist_user_id: user.anilist_user_id }
-        }
+        parent_comment_id: parent_comment_id || null
       },
       include: {
         user: true
