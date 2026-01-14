@@ -62,6 +62,19 @@ model Vote {
   @@map("votes")
 }
 
+model RateLimit {
+  id           String    @id @default(cuid())
+  user_id      Int
+  action_type  String
+  action_count Int       @default(1)
+  window_start DateTime
+  window_end   DateTime
+  created_at   DateTime  @default(now())
+
+  @@unique([user_id, action_type, window_start])
+  @@map("rate_limits")
+}
+
 enum MediaType {
   ANIME
   MANGA

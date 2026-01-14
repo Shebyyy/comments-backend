@@ -20,21 +20,26 @@ export async function checkRateLimit(
   const windowStart = new Date(now.getTime() - limit.window * 60 * 1000);
 
   // Clean old rate limit records
-  await db.query(`
-    DELETE FROM rate_limits 
-    WHERE window_end < $1
-  `, [now]);
+  await db.rateLimit.deleteMany({
+    where: {
+      window_end: {
+        lt: now
+      }
+    }
+  });
 
   // Check current window
-  const currentCountResult = await db.query(`
-    SELECT COALESCE(SUM(action_count), 0) as total
-    FROM rate_limits 
-    WHERE user_id = $1 
-      AND action_type = $2 
-      AND window_start >= $3
-  `, [userId, actionType, windowStart]);
+  const currentCounts = await db.rateLimit.findMany({
+    where: {
+      user_id: userId,
+      action_type: actionType,
+      window_start: {
+        gte: windowStart
+      }
+    }
+  });
 
-  const total = parseInt(currentCountResult.rows[0]?.total || '0');
+  const total = currentCounts.reduce((sum: number, record: any) => sum + record.action_count, 0);
 
   if (total >= limit.max) {
     throw new Error(
@@ -45,12 +50,26 @@ export async function checkRateLimit(
   // Record this action
   const windowEnd = new Date(now.getTime() + limit.window * 60 * 1000);
   
-  await db.query(`
-    INSERT INTO rate_limits (user_id, action_type, window_start, window_end)
-    VALUES ($1, $2, $3, $4)
-    ON CONFLICT (user_id, action_type, window_start)
-    DO UPDATE SET 
-      action_count = rate_limits.action_count + 1,
-      window_end = EXCLUDED.window_end
-  `, [userId, actionType, windowStart, windowEnd]);
+  await db.rateLimit.upsert({
+    where: {
+      user_id_action_type_window_start: {
+        user_id: userId,
+        action_type: actionType,
+        window_start: windowStart
+      }
+    },
+    update: {
+      action_count: {
+        increment: 1
+      },
+      window_end: windowEnd
+    },
+    create: {
+      user_id: userId,
+      action_type: actionType,
+      action_count: 1,
+      window_start: windowStart,
+      window_end: windowEnd
+    }
+  });
 }

@@ -33,21 +33,29 @@ export async function DELETE(
     }
 
     // Get comment with user data
-    const commentResult = await db.query(`
-      SELECT c.*, u.anilist_user_id, u.is_mod as user_is_mod, u.is_admin as user_is_admin
-      FROM comments c
-      JOIN users u ON c.user_id = u.anilist_user_id
-      WHERE c.comment_id = $1 AND c.deleted = FALSE
-    `, [commentId]);
+    const comment = await db.comment.findUnique({
+      where: {
+        id: commentId,
+        is_deleted: false
+      },
+      include: {
+        user: {
+          select: {
+            anilist_user_id: true,
+            is_mod: true,
+            is_admin: true
+          }
+        }
+      }
+    });
 
-    if (commentResult.rows.length === 0) {
+    if (!comment) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Comment not found'
       }, { status: 404 });
     }
 
-    const comment = commentResult.rows[0];
     const requestingUser = {
       anilist_user_id: anilistUser.id,
       username: anilistUser.name,
@@ -68,18 +76,20 @@ export async function DELETE(
     }
 
     // Soft delete the comment
-    const deleteReason = comment.user_id === anilistUser.id 
+    const deleteReason = comment.anilist_user_id === anilistUser.id 
       ? '[deleted by user]' 
       : '[deleted by moderator]';
 
-    await db.query(`
-      UPDATE comments 
-      SET 
-        deleted = TRUE,
-        deleted_at = NOW(),
-        content = $1
-      WHERE comment_id = $2
-    `, [deleteReason, commentId]);
+    await db.comment.update({
+      where: {
+        id: commentId
+      },
+      data: {
+        is_deleted: true,
+        updated_at: new Date(),
+        content: deleteReason
+      }
+    });
 
     // If moderator/admin is deleting, also delete all replies recursively
     if (requestingUser.is_mod || requestingUser.is_admin) {
@@ -119,24 +129,30 @@ export async function DELETE(
 
 async function deleteRepliesRecursively(parentCommentId: string, db: any) {
   // Get all direct replies
-  const repliesResult = await db.query(`
-    SELECT comment_id
-    FROM comments 
-    WHERE parent_comment_id = $1 AND deleted = FALSE
-  `, [parentCommentId]);
+  const replies = await db.comment.findMany({
+    where: {
+      parent_comment_id: parentCommentId,
+      is_deleted: false
+    },
+    select: {
+      id: true
+    }
+  });
 
   // Delete each reply and its children
-  for (const reply of repliesResult.rows) {
-    await db.query(`
-      UPDATE comments 
-      SET 
-        deleted = TRUE,
-        deleted_at = NOW(),
-        content = '[deleted by moderator]'
-      WHERE comment_id = $1
-    `, [reply.comment_id]);
+  for (const reply of replies) {
+    await db.comment.update({
+      where: {
+        id: reply.id
+      },
+      data: {
+        is_deleted: true,
+        updated_at: new Date(),
+        content: '[deleted by moderator]'
+      }
+    });
 
     // Recursively delete nested replies
-    await deleteRepliesRecursively(reply.comment_id, db);
+    await deleteRepliesRecursively(reply.id, db);
   }
 }
