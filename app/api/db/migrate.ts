@@ -1,9 +1,10 @@
-import { db } from './connection';
+import { db, connectDatabase } from './connection';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
 export async function runMigrations() {
   try {
+    await connectDatabase();
     const sqlPath = join(process.cwd(), 'sql', '001_initial_schema.sql');
     const migrationSQL = readFileSync(sqlPath, 'utf8');
     
