@@ -1,3 +1,4 @@
+import { db } from '@/app/api/db/connection';
 import { ActionType, RateLimitConfig } from '@/lib/types';
 
 export const RATE_LIMITS: Record<ActionType, RateLimitConfig> = {
@@ -8,8 +9,7 @@ export const RATE_LIMITS: Record<ActionType, RateLimitConfig> = {
 
 export async function checkRateLimit(
   userId: number, 
-  actionType: ActionType, 
-  db: any
+  actionType: ActionType
 ): Promise<void> {
   const limit = RATE_LIMITS[actionType];
   if (!limit) {
@@ -20,19 +20,19 @@ export async function checkRateLimit(
   const windowStart = new Date(now.getTime() - limit.window * 60 * 1000);
 
   // Clean old rate limit records
-  await db.query(`
+  await db`
     DELETE FROM rate_limits 
-    WHERE window_end < $1
-  `, [now]);
+    WHERE window_end < ${now}
+  `;
 
   // Check current window
-  const currentCountResult = await db.query(`
+  const currentCountResult = await db`
     SELECT COALESCE(SUM(action_count), 0) as total
     FROM rate_limits 
-    WHERE user_id = $1 
-      AND action_type = $2 
-      AND window_start >= $3
-  `, [userId, actionType, windowStart]);
+    WHERE user_id = ${userId}
+      AND action_type = ${actionType}
+      AND window_start >= ${windowStart}
+  `;
 
   const total = parseInt(currentCountResult.rows[0]?.total || '0');
 
@@ -45,12 +45,12 @@ export async function checkRateLimit(
   // Record this action
   const windowEnd = new Date(now.getTime() + limit.window * 60 * 1000);
   
-  await db.query(`
+  await db`
     INSERT INTO rate_limits (user_id, action_type, window_start, window_end)
-    VALUES ($1, $2, $3, $4)
+    VALUES (${userId}, ${actionType}, ${windowStart}, ${windowEnd})
     ON CONFLICT (user_id, action_type, window_start)
     DO UPDATE SET 
       action_count = rate_limits.action_count + 1,
       window_end = EXCLUDED.window_end
-  `, [userId, actionType, windowStart, windowEnd]);
+  `;
 }
