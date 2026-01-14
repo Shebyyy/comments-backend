@@ -19,10 +19,7 @@ export interface User {
   last_active: Date;
 }
 
-export enum MediaType {
-  ANIME = 'ANIME',
-  MANGA = 'MANGA'
-}
+export type MediaType = 'ANIME' | 'MANGA';
 
 export interface Comment {
   id: string;
