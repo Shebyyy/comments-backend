@@ -26,7 +26,7 @@ export interface Comment {
   anilist_user_id: number;
   media_id: number;
   media_type: MediaType;
-  parent_comment_id?: string;
+  parent_comment_id: string | null;
   content: string;
   upvotes: number;
   downvotes: number;
@@ -34,13 +34,15 @@ export interface Comment {
   created_at: Date;
   updated_at: Date;
   username: string;
-  profile_picture_url?: string;
+  profile_picture_url: string | null;
   is_mod: boolean;
   is_admin: boolean;
   user?: {
     anilist_user_id: number;
     is_mod: boolean;
     is_admin: boolean;
+    username: string;
+    profile_picture_url: string | null;
   };
   replies?: Comment[];
 }
