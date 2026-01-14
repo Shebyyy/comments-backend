@@ -7,9 +7,11 @@ import { ApiResponse } from '@/lib/types';
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: commentId } = await params;
+    
     const authHeader = request.headers.get('authorization');
     if (!authHeader) {
       return NextResponse.json<ApiResponse>({
@@ -23,8 +25,6 @@ export async function DELETE(
     
     // Check rate limit
     await checkRateLimit(anilistUser.id, 'delete', db);
-
-    const commentId = params.id;
     if (!commentId) {
       return NextResponse.json<ApiResponse>({
         success: false,
