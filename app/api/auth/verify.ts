@@ -1,3 +1,4 @@
+import { db } from '@/app/api/db/connection';
 import { AniListUser } from '@/lib/types';
 
 export async function verifyAniListToken(token: string): Promise<AniListUser> {
@@ -57,15 +58,21 @@ export async function verifyAniListToken(token: string): Promise<AniListUser> {
   }
 }
 
-export async function upsertUser(anilistUser: AniListUser, db: any) {
+export async function upsertUser(anilistUser: AniListUser) {
   const isMod = anilistUser.moderatorStatus === 'MODERATOR' || anilistUser.moderatorStatus === 'ADMIN';
   const isAdmin = anilistUser.moderatorStatus === 'ADMIN';
 
   try {
-    await db.connect();
-    await db.query(`
+    await db`
       INSERT INTO users (anilist_user_id, username, profile_picture_url, is_mod, is_admin, last_active)
-      VALUES ($1, $2, $3, $4, $5, NOW())
+      VALUES (
+        ${anilistUser.id},
+        ${anilistUser.name},
+        ${anilistUser.avatar?.large || anilistUser.avatar?.medium || null},
+        ${isMod},
+        ${isAdmin},
+        NOW()
+      )
       ON CONFLICT (anilist_user_id) 
       DO UPDATE SET 
         username = EXCLUDED.username,
@@ -73,13 +80,7 @@ export async function upsertUser(anilistUser: AniListUser, db: any) {
         is_mod = EXCLUDED.is_mod,
         is_admin = EXCLUDED.is_admin,
         last_active = NOW()
-    `, [
-      anilistUser.id,
-      anilistUser.name,
-      anilistUser.avatar?.large || anilistUser.avatar?.medium,
-      isMod,
-      isAdmin
-    ]);
+    `;
   } catch (error) {
     console.error('User upsert failed:', error);
     throw error;
