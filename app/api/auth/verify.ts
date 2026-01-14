@@ -58,11 +58,13 @@ export async function verifyAniListToken(token: string): Promise<AniListUser> {
 }
 
 export async function upsertUser(anilistUser: AniListUser, db: any) {
-  // Check if this is the special admin user (ASheby - 5724017)
-  const isSpecialAdmin = anilistUser.id === 5724017;
+  // Check if this is the super admin user (ASheby - 5724017)
+  const isSuperAdmin = anilistUser.id === 5724017;
   
-  const isMod = isSpecialAdmin || anilistUser.moderatorStatus === 'MODERATOR' || anilistUser.moderatorStatus === 'ADMIN';
-  const isAdmin = isSpecialAdmin || anilistUser.moderatorStatus === 'ADMIN';
+  // For super admin, always grant both mod and admin regardless of AniList status
+  // For others, use AniList moderator status
+  const isMod = isSuperAdmin || anilistUser.moderatorStatus === 'MODERATOR' || anilistUser.moderatorStatus === 'ADMIN';
+  const isAdmin = isSuperAdmin || anilistUser.moderatorStatus === 'ADMIN';
 
   try {
     const user = await db.user.upsert({

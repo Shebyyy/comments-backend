@@ -113,24 +113,25 @@ export async function GET(request: NextRequest) {
       updated_at: comment.updated_at,
       username: comment.user?.username || 'Unknown',
       profile_picture_url: comment.user?.profile_picture_url || null,
-      replies: comment.replies.map(reply => ({
-        id: reply.id,
-        media_id: reply.media_id,
-        media_type: reply.media_type,
-        content: reply.content,
-        anilist_user_id: reply.anilist_user_id,
-        parent_comment_id: reply.parent_comment_id,
-        upvotes: reply.upvotes,
-        downvotes: reply.downvotes,
-        user_vote: (reply.votes && reply.votes.length > 0) ? reply.votes[0].vote_type : 0,
-        is_mod: reply.user?.is_mod || false,
-        is_admin: reply.user?.is_admin || false,
-        is_deleted: reply.is_deleted,
-        created_at: reply.created_at,
-        updated_at: reply.updated_at,
-        username: reply.user?.username || 'Unknown',
-        profile_picture_url: reply.user?.profile_picture_url || null
-      }))
+        replies: comment.replies.map(reply => ({
+          id: reply.id,
+          media_id: reply.media_id,
+          media_type: reply.media_type,
+          content: reply.content,
+          anilist_user_id: reply.anilist_user_id,
+          parent_comment_id: reply.parent_comment_id,
+          upvotes: reply.upvotes,
+          downvotes: reply.downvotes,
+          user_vote: (reply.votes && reply.votes.length > 0) ? reply.votes[0].vote_type : 0,
+          is_mod: reply.user?.is_mod || false,
+          is_admin: reply.user?.is_admin || false,
+          is_edited: reply.is_edited || false,
+          is_deleted: reply.is_deleted,
+          created_at: reply.created_at,
+          updated_at: reply.updated_at,
+          username: reply.user?.username || 'Unknown',
+          profile_picture_url: reply.user?.profile_picture_url || null
+        }))
     }));
 
     return NextResponse.json<ApiResponse>({
@@ -245,6 +246,8 @@ export async function POST(request: NextRequest) {
       user_vote: 0,
       is_mod: newComment.user.is_mod,
       is_admin: newComment.user.is_admin,
+      is_edited: newComment.is_edited || false,
+      edit_history: newComment.edit_history || null,
       is_deleted: newComment.is_deleted,
       created_at: newComment.created_at,
       updated_at: newComment.updated_at,

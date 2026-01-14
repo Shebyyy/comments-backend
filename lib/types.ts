@@ -14,6 +14,10 @@ export interface User {
   profile_picture_url?: string;
   is_mod: boolean;
   is_admin: boolean;
+  is_banned?: boolean;
+  ban_reason?: string;
+  ban_expires?: Date;
+  warning_count?: number;
   created_at: Date;
   updated_at: Date;
   last_active: Date;
@@ -31,6 +35,8 @@ export interface Comment {
   upvotes: number;
   downvotes: number;
   is_deleted: boolean;
+  is_edited?: boolean;
+  edit_history?: EditHistory[];
   created_at: Date;
   updated_at: Date;
   username: string;
@@ -45,6 +51,12 @@ export interface Comment {
     profile_picture_url: string | null;
   };
   replies?: Comment[];
+}
+
+export interface EditHistory {
+  content: string;
+  edited_at: Date;
+  reason?: string;
 }
 
 export interface CommentVote {
@@ -80,7 +92,7 @@ export interface ApiResponse<T = any> {
   message?: string;
 }
 
-export type ActionType = 'comment' | 'vote' | 'delete';
+export type ActionType = 'comment' | 'vote' | 'delete' | 'edit' | 'report' | 'ban' | 'warn';
 
 export interface RateLimitConfig {
   max: number;
@@ -94,4 +106,92 @@ export interface RateLimit {
   action_count: number;
   window_start: Date;
   window_end: Date;
+}
+
+// Report interfaces
+export interface Report {
+  id: string;
+  comment_id: string;
+  reporter_user_id: number;
+  reason: string;
+  description?: string;
+  status: ReportStatus;
+  reviewed_by?: number;
+  review_note?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreateReportRequest {
+  comment_id: string;
+  reason: string;
+  description?: string;
+}
+
+export type ReportStatus = 'PENDING' | 'REVIEWED' | 'RESOLVED' | 'DISMISSED';
+
+// Ban interfaces
+export interface Ban {
+  id: string;
+  user_id: number;
+  banned_by: number;
+  reason: string;
+  duration_hours?: number;
+  is_permanent: boolean;
+  is_active: boolean;
+  created_at: Date;
+  expires_at?: Date;
+}
+
+export interface CreateBanRequest {
+  user_id: number;
+  reason: string;
+  duration_hours?: number;
+  is_permanent?: boolean;
+}
+
+// Warning interfaces
+export interface Warning {
+  id: string;
+  user_id: number;
+  warned_by: number;
+  reason: string;
+  description?: string;
+  is_active: boolean;
+  created_at: Date;
+}
+
+export interface CreateWarningRequest {
+  user_id: number;
+  reason: string;
+  description?: string;
+}
+
+// Admin action interfaces
+export interface AdminActionRequest {
+  user_id: number;
+  action: 'promote' | 'demote';
+  role: 'mod' | 'admin';
+}
+
+export interface EditCommentRequest {
+  content: string;
+  reason?: string;
+}
+
+// Vote viewing interface
+export interface VoteListResponse {
+  comment_id: string;
+  upvotes: {
+    user_id: number;
+    username: string;
+    profile_picture_url?: string;
+    created_at: Date;
+  }[];
+  downvotes: {
+    user_id: number;
+    username: string;
+    profile_picture_url?: string;
+    created_at: Date;
+  }[];
 }

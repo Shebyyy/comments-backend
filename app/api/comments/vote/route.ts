@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
-import { verifyAniListToken } from '@/app/api/auth/verify';
+import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { canVoteOnOwnComment } from '@/lib/permissions';
 import { VoteRequest, ApiResponse } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
@@ -16,6 +17,9 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.replace('Bearer ', '');
     const anilistUser = await verifyAniListToken(token);
+    
+    // Upsert user to get current permissions
+    const user = await upsertUser(anilistUser, db);
     
     // Check rate limit
     await checkRateLimit(anilistUser.id, 'vote', db);
@@ -57,8 +61,8 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Prevent voting on own comments
-    if (comment.anilist_user_id === anilistUser.id) {
+    // Prevent voting on own comments unless user has permission
+    if (comment.anilist_user_id === anilistUser.id && !canVoteOnOwnComment(user)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Cannot vote on your own comment'

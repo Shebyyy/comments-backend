@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { canDeleteComment, hasOverridePermission } from '@/lib/permissions';
-import { ApiResponse } from '@/lib/types';
+import { canEditComment } from '@/lib/permissions';
+import { EditCommentRequest, ApiResponse } from '@/lib/types';
 
-export async function DELETE(
+export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -27,11 +27,23 @@ export async function DELETE(
     const user = await upsertUser(anilistUser, db);
     
     // Check rate limit
-    await checkRateLimit(anilistUser.id, 'delete', db);
-    if (!commentId) {
+    await checkRateLimit(anilistUser.id, 'edit', db);
+
+    const body: EditCommentRequest = await request.json();
+    const { content, reason } = body;
+
+    // Validate input
+    if (!content || content.trim().length === 0) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'Comment ID is required'
+        error: 'Content is required'
+      }, { status: 400 });
+    }
+
+    if (content.length > 2000) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Comment content too long (max 2000 characters)'
       }, { status: 400 });
     }
 
@@ -81,42 +93,72 @@ export async function DELETE(
       last_active: new Date()
     };
 
-    // Check permissions with admin override
-    if (!hasOverridePermission(requestingUser) && !canDeleteComment(transformedComment, requestingUser)) {
+    // Check permissions
+    if (!canEditComment(transformedComment, requestingUser)) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'Insufficient permissions to delete this comment'
+        error: 'Insufficient permissions to edit this comment'
       }, { status: 403 });
     }
 
-    // Soft delete the comment
-    const deleteReason = transformedComment.anilist_user_id === anilistUser.id 
-      ? '[deleted by user]' 
-      : (requestingUser.is_admin ? '[deleted by admin]' : '[deleted by moderator]');
+    // Get current edit history
+    const currentHistory = comment.edit_history as any[] || [];
+    
+    // Add current content to edit history
+    const newEditEntry = {
+      content: comment.content,
+      edited_at: new Date(),
+      reason: reason || null
+    };
 
-    await db.comment.update({
+    const updatedHistory = [...currentHistory, newEditEntry];
+
+    // Update comment
+    const updatedComment = await db.comment.update({
       where: {
         id: commentId
       },
       data: {
-        is_deleted: true,
-        updated_at: new Date(),
-        content: deleteReason
+        content: content.trim(),
+        is_edited: true,
+        edit_history: updatedHistory,
+        updated_at: new Date()
+      },
+      include: {
+        user: true
       }
     });
 
-    // If moderator/admin is deleting, also delete all replies recursively
-    if (requestingUser.is_mod || requestingUser.is_admin) {
-      await deleteRepliesRecursively(commentId, db, requestingUser.is_admin ? '[deleted by admin]' : '[deleted by moderator]');
-    }
+    // Format response
+    const formattedComment = {
+      id: updatedComment.id,
+      media_id: updatedComment.media_id,
+      media_type: updatedComment.media_type,
+      content: updatedComment.content,
+      anilist_user_id: updatedComment.anilist_user_id,
+      parent_comment_id: updatedComment.parent_comment_id,
+      upvotes: updatedComment.upvotes,
+      downvotes: updatedComment.downvotes,
+      is_edited: updatedComment.is_edited,
+      edit_history: updatedComment.edit_history,
+      is_deleted: updatedComment.is_deleted,
+      created_at: updatedComment.created_at,
+      updated_at: updatedComment.updated_at,
+      username: updatedComment.user.username,
+      profile_picture_url: updatedComment.user.profile_picture_url,
+      is_mod: updatedComment.user.is_mod,
+      is_admin: updatedComment.user.is_admin,
+      replies: []
+    };
 
     return NextResponse.json<ApiResponse>({
       success: true,
-      message: 'Comment deleted successfully'
+      data: formattedComment,
+      message: 'Comment updated successfully'
     });
 
   } catch (error) {
-    console.error('DELETE comment error:', error);
+    console.error('PUT comment error:', error);
     
     if (error instanceof Error) {
       if (error.message.includes('Rate limit')) {
@@ -138,35 +180,5 @@ export async function DELETE(
       success: false,
       error: 'Internal server error'
     }, { status: 500 });
-  }
-}
-
-async function deleteRepliesRecursively(parentCommentId: string, db: any, deleteReason: string) {
-  // Get all direct replies
-  const replies = await db.comment.findMany({
-    where: {
-      parent_comment_id: parentCommentId,
-      is_deleted: false
-    },
-    select: {
-      id: true
-    }
-  });
-
-  // Delete each reply and its children
-  for (const reply of replies) {
-    await db.comment.update({
-      where: {
-        id: reply.id
-      },
-      data: {
-        is_deleted: true,
-        updated_at: new Date(),
-        content: deleteReason
-      }
-    });
-
-    // Recursively delete nested replies
-    await deleteRepliesRecursively(reply.id, db, deleteReason);
   }
 }

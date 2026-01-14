@@ -17,12 +17,20 @@ model User {
   profile_picture_url String?
   is_mod            Boolean   @default(false)
   is_admin          Boolean   @default(false)
+  is_banned         Boolean   @default(false)
+  ban_reason        String?
+  ban_expires       DateTime?
+  warning_count     Int       @default(0)
   last_active       DateTime  @default(now())
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
   comments          Comment[]
   votes             Vote[]
+  reports           Report[]
+  bans_given        Ban[]
+  warnings_received Warning[]
+  warnings_given    Warning[]
 
   @@map("users")
 }
@@ -37,6 +45,8 @@ model Comment {
   upvotes           Int       @default(0)
   downvotes         Int       @default(0)
   is_deleted        Boolean   @default(false)
+  is_edited         Boolean   @default(false)
+  edit_history      Json?     // Store edit history
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
@@ -44,6 +54,7 @@ model Comment {
   parent_comment     Comment?  @relation("CommentReplies", fields: [parent_comment_id], references: [id])
   replies           Comment[] @relation("CommentReplies")
   votes             Vote[]
+  reports           Report[]
 
   @@map("comments")
 }
@@ -75,7 +86,65 @@ model RateLimit {
   @@map("rate_limits")
 }
 
+model Report {
+  id                String    @id @default(cuid())
+  comment_id        String
+  reporter_user_id  Int
+  reason            String
+  description       String?
+  status            ReportStatus @default(PENDING)
+  reviewed_by       Int?
+  review_note       String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  comment           Comment   @relation(fields: [comment_id], references: [id])
+  reporter          User      @relation(fields: [reporter_user_id], references: [anilist_user_id])
+
+  @@unique([comment_id, reporter_user_id])
+  @@map("reports")
+}
+
+model Ban {
+  id            String    @id @default(cuid())
+  user_id       Int
+  banned_by     Int
+  reason        String
+  duration_hours Int?
+  is_permanent  Boolean   @default(false)
+  is_active     Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  expires_at    DateTime?
+
+  banned_user   User      @relation(fields: [user_id], references: [anilist_user_id])
+  banner        User      @relation(fields: [banned_by], references: [anilist_user_id])
+
+  @@map("bans")
+}
+
+model Warning {
+  id                String    @id @default(cuid())
+  user_id           Int
+  warned_by         Int
+  reason            String
+  description       String?
+  is_active         Boolean   @default(true)
+  created_at        DateTime  @default(now())
+
+  warned_user       User      @relation(fields: [user_id], references: [anilist_user_id])
+  warner            User      @relation(fields: [warned_by], references: [anilist_user_id])
+
+  @@map("warnings")
+}
+
 enum MediaType {
   ANIME
   MANGA
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
 }
