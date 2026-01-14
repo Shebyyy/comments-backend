@@ -61,23 +61,29 @@ export async function upsertUser(anilistUser: AniListUser, db: any) {
   const isMod = anilistUser.moderatorStatus === 'MODERATOR' || anilistUser.moderatorStatus === 'ADMIN';
   const isAdmin = anilistUser.moderatorStatus === 'ADMIN';
 
-  await db.query(`
-    INSERT INTO users (anilist_user_id, username, profile_picture_url, is_mod, is_admin, last_active)
-    VALUES ($1, $2, $3, $4, $5, NOW())
-    ON CONFLICT (anilist_user_id) 
-    DO UPDATE SET 
-      username = EXCLUDED.username,
-      profile_picture_url = EXCLUDED.profile_picture_url,
-      is_mod = EXCLUDED.is_mod,
-      is_admin = EXCLUDED.is_admin,
-      last_active = NOW()
-  `, [
-    anilistUser.id,
-    anilistUser.name,
-    anilistUser.avatar?.large || anilistUser.avatar?.medium,
-    isMod,
-    isAdmin
-  ]);
+  try {
+    await db.connect();
+    await db.query(`
+      INSERT INTO users (anilist_user_id, username, profile_picture_url, is_mod, is_admin, last_active)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (anilist_user_id) 
+      DO UPDATE SET 
+        username = EXCLUDED.username,
+        profile_picture_url = EXCLUDED.profile_picture_url,
+        is_mod = EXCLUDED.is_mod,
+        is_admin = EXCLUDED.is_admin,
+        last_active = NOW()
+    `, [
+      anilistUser.id,
+      anilistUser.name,
+      anilistUser.avatar?.large || anilistUser.avatar?.medium,
+      isMod,
+      isAdmin
+    ]);
+  } catch (error) {
+    console.error('User upsert failed:', error);
+    throw error;
+  }
 
   return {
     anilist_user_id: anilistUser.id,
