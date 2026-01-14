@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const anilistUser = await verifyAniListToken(token);
     
     // Check rate limit
-    await checkRateLimit(anilistUser.id, 'vote', db);
+    await checkRateLimit(anilistUser.id, 'vote');
 
     const body: VoteRequest = await request.json();
     const { comment_id, vote_type } = body;
@@ -39,11 +39,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if comment exists and is not deleted
-    const commentResult = await db.query(`
+    const commentResult = await db`
       SELECT comment_id, deleted, user_id as comment_author_id
       FROM comments 
-      WHERE comment_id = $1
-    `, [comment_id]);
+      WHERE comment_id = ${comment_id}
+    `;
 
     if (commentResult.rows.length === 0) {
       return NextResponse.json<ApiResponse>({
@@ -69,9 +69,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert vote (insert or update)
-    const voteQuery = `
+    const voteResult = await db`
       INSERT INTO comment_votes (comment_id, user_id, vote_type)
-      VALUES ($1, $2, $3)
+      VALUES (${comment_id}, ${anilistUser.id}, ${vote_type})
       ON CONFLICT (comment_id, user_id) 
       DO UPDATE SET 
         vote_type = EXCLUDED.vote_type,
@@ -79,15 +79,14 @@ export async function POST(request: NextRequest) {
       RETURNING vote_type
     `;
 
-    const voteResult = await db.query(voteQuery, [comment_id, anilistUser.id, vote_type]);
     const newVoteType = voteResult.rows[0].vote_type;
 
     // Get updated comment vote counts
-    const updatedCommentResult = await db.query(`
+    const updatedCommentResult = await db`
       SELECT upvotes, downvotes, total_votes
       FROM comments 
-      WHERE comment_id = $1
-    `, [comment_id]);
+      WHERE comment_id = ${comment_id}
+    `;
 
     const updatedComment = updatedCommentResult.rows[0];
 
