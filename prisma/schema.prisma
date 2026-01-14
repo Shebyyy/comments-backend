@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URL")
+}
+
+model User {
+  id                String    @id @default(cuid())
+  anilist_user_id   Int       @unique
+  username          String
+  profile_picture_url String?
+  is_mod            Boolean   @default(false)
+  is_admin          Boolean   @default(false)
+  last_active       DateTime  @default(now())
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  comments          Comment[]
+  votes             Vote[]
+
+  @@map("users")
+}
+
+model Comment {
+  id                String    @id @default(cuid())
+  media_id          Int
+  media_type        MediaType
+  content           String
+  anilist_user_id   Int
+  parent_comment_id String?
+  upvotes           Int       @default(0)
+  downvotes         Int       @default(0)
+  is_deleted        Boolean   @default(false)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  user              User      @relation(fields: [anilist_user_id], references: [anilist_user_id])
+  parent_comment     Comment?  @relation("CommentReplies", fields: [parent_comment_id], references: [id])
+  replies           Comment[] @relation("CommentReplies")
+  votes             Vote[]
+
+  @@map("comments")
+}
+
+model Vote {
+  id         String     @id @default(cuid())
+  comment_id String
+  user_id    Int
+  vote_type  Int        // 1 for upvote, -1 for downvote
+  created_at DateTime   @default(now())
+
+  user       User       @relation(fields: [user_id], references: [anilist_user_id])
+  comment    Comment    @relation(fields: [comment_id], references: [id])
+
+  @@unique([comment_id, user_id])
+  @@map("votes")
+}
+
+enum MediaType {
+  ANIME
+  MANGA
+}

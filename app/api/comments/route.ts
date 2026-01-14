@@ -2,16 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { CreateCommentRequest, ApiResponse } from '@/lib/types';
+import { CreateCommentRequest, Comment, ApiResponse } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const mediaId = searchParams.get('media_id');
+    const mediaType = searchParams.get('media_type') || 'ANIME';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
-    const tag = searchParams.get('tag') || 'general';
     const sortBy = searchParams.get('sort') || 'newest';
+    const parentId = searchParams.get('parent_id');
 
     if (!mediaId) {
       return NextResponse.json<ApiResponse>({
@@ -38,113 +39,105 @@ export async function GET(request: NextRequest) {
         const anilistUser = await verifyAniListToken(token);
         userId = anilistUser.id;
       } catch (error) {
+        // Token verification failed, but allow read access
         console.warn('Optional auth failed:', error);
       }
     }
 
     const offset = (page - 1) * limit;
 
-    // Fetch comments based on sort order
-    let commentsResult;
+    // Build where clause
+    const whereClause: any = {
+      media_id: mediaIdNum,
+      media_type: mediaType,
+      parent_comment_id: parentId || null,
+      is_deleted: false
+    };
+
+    // Build order by
+    let orderBy: any = { created_at: 'desc' };
     if (sortBy === 'top') {
-      commentsResult = await db`
-        SELECT 
-          c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
-          c.content, c.tag, c.created_at, c.updated_at, c.deleted,
-          c.upvotes, c.downvotes, c.total_votes, c.reply_count,
-          c.username, c.profile_picture_url, c.is_mod, c.is_admin,
-          cv.vote_type as user_vote_type
-        FROM comments c
-        LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
-          AND cv.user_id = ${userId}
-        WHERE c.media_id = ${mediaIdNum}
-          AND c.parent_comment_id IS NULL 
-          AND c.tag = ${tag}
-          AND c.deleted = FALSE
-        ORDER BY c.total_votes DESC, c.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `;
+      orderBy = [
+        { upvotes: 'desc' },
+        { created_at: 'desc' }
+      ];
     } else if (sortBy === 'oldest') {
-      commentsResult = await db`
-        SELECT 
-          c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
-          c.content, c.tag, c.created_at, c.updated_at, c.deleted,
-          c.upvotes, c.downvotes, c.total_votes, c.reply_count,
-          c.username, c.profile_picture_url, c.is_mod, c.is_admin,
-          cv.vote_type as user_vote_type
-        FROM comments c
-        LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
-          AND cv.user_id = ${userId}
-        WHERE c.media_id = ${mediaIdNum}
-          AND c.parent_comment_id IS NULL 
-          AND c.tag = ${tag}
-          AND c.deleted = FALSE
-        ORDER BY c.created_at ASC
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-    } else {
-      commentsResult = await db`
-        SELECT 
-          c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
-          c.content, c.tag, c.created_at, c.updated_at, c.deleted,
-          c.upvotes, c.downvotes, c.total_votes, c.reply_count,
-          c.username, c.profile_picture_url, c.is_mod, c.is_admin,
-          cv.vote_type as user_vote_type
-        FROM comments c
-        LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
-          AND cv.user_id = ${userId}
-        WHERE c.media_id = ${mediaIdNum}
-          AND c.parent_comment_id IS NULL 
-          AND c.tag = ${tag}
-          AND c.deleted = FALSE
-        ORDER BY c.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `;
+      orderBy = { created_at: 'asc' };
     }
 
+    // Fetch comments
+    const comments = await db.comment.findMany({
+      where: whereClause,
+      orderBy,
+      include: {
+        user: true,
+        votes: userId ? {
+          where: { user_id: userId }
+        } : false,
+        replies: {
+          where: { is_deleted: false },
+          orderBy: { created_at: 'asc' },
+          take: 10,
+          include: {
+            user: true,
+            votes: userId ? {
+              where: { user_id: userId }
+            } : false
+          }
+        }
+      },
+      skip: offset,
+      take: limit
+    });
+
     // Get total count
-    const countResult = await db`
-      SELECT COUNT(*) as total
-      FROM comments c
-      WHERE c.media_id = ${mediaIdNum}
-        AND c.parent_comment_id IS NULL 
-        AND c.tag = ${tag}
-        AND c.deleted = FALSE
-    `;
+    const total = await db.comment.count({
+      where: whereClause
+    });
 
-    const total = parseInt(countResult.rows[0].total);
-
-    // Fetch replies for each comment
-    const commentsWithReplies = await Promise.all(
-      commentsResult.rows.map(async (comment: any) => {
-        const repliesResult = await db`
-          SELECT 
-            c.comment_id, c.user_id, c.media_id, c.parent_comment_id,
-            c.content, c.tag, c.created_at, c.updated_at, c.deleted,
-            c.upvotes, c.downvotes, c.total_votes, c.reply_count,
-            c.username, c.profile_picture_url, c.is_mod, c.is_admin,
-            cv.vote_type as user_vote_type
-          FROM comments c
-          LEFT JOIN comment_votes cv ON c.comment_id = cv.comment_id 
-            AND cv.user_id = ${userId}
-          WHERE c.parent_comment_id = ${comment.comment_id} 
-            AND c.deleted = FALSE
-          ORDER BY c.created_at ASC
-          LIMIT 10
-        `;
-
-        return {
-          ...comment,
-          replies: repliesResult.rows
-        };
-      })
-    );
+    // Format response
+    const formattedComments = comments.map(comment => ({
+      id: comment.id,
+      media_id: comment.media_id,
+      media_type: comment.media_type,
+      content: comment.content,
+      anilist_user_id: comment.anilist_user_id,
+      parent_comment_id: comment.parent_comment_id,
+      upvotes: comment.upvotes,
+      downvotes: comment.downvotes,
+      user_vote: comment.votes.length > 0 ? comment.votes[0].vote_type : 0,
+      is_mod: comment.user.is_mod,
+      is_admin: comment.user.is_admin,
+      is_deleted: comment.is_deleted,
+      created_at: comment.created_at,
+      updated_at: comment.updated_at,
+      username: comment.user.username,
+      profile_picture_url: comment.user.profile_picture_url,
+      replies: comment.replies.map(reply => ({
+        id: reply.id,
+        media_id: reply.media_id,
+        media_type: reply.media_type,
+        content: reply.content,
+        anilist_user_id: reply.anilist_user_id,
+        parent_comment_id: reply.parent_comment_id,
+        upvotes: reply.upvotes,
+        downvotes: reply.downvotes,
+        user_vote: reply.votes.length > 0 ? reply.votes[0].vote_type : 0,
+        is_mod: reply.user.is_mod,
+        is_admin: reply.user.is_admin,
+        is_deleted: reply.is_deleted,
+        created_at: reply.created_at,
+        updated_at: reply.updated_at,
+        username: reply.user.username,
+        profile_picture_url: reply.user.profile_picture_url
+      }))
+    }));
 
     return NextResponse.json<ApiResponse>({
       success: true,
       data: {
-        comments: commentsWithReplies,
-        hasMore: offset + commentsResult.rows.length < total,
+        comments: formattedComments,
+        hasMore: offset + comments.length < total,
         total,
         page,
         limit
@@ -174,13 +167,13 @@ export async function POST(request: NextRequest) {
     const anilistUser = await verifyAniListToken(token);
     
     // Check rate limit
-    await checkRateLimit(anilistUser.id, 'comment');
+    await checkRateLimit(anilistUser.id, 'comment', db);
 
     // Upsert user
-    const user = await upsertUser(anilistUser);
+    const user = await upsertUser(anilistUser, db);
 
     const body: CreateCommentRequest = await request.json();
-    const { media_id, content, parent_comment_id, tag = 'general' } = body;
+    const { media_id, media_type, content, parent_comment_id } = body;
 
     // Validate input
     if (!media_id || !content || content.trim().length === 0) {
@@ -197,30 +190,27 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Check if parent comment exists
+    // Check if parent comment exists (if provided)
     if (parent_comment_id) {
-      const parentResult = await db`
-        SELECT comment_id, media_id, deleted 
-        FROM comments 
-        WHERE comment_id = ${parent_comment_id}
-      `;
+      const parentComment = await db.comment.findUnique({
+        where: { id: parent_comment_id }
+      });
 
-      if (parentResult.rows.length === 0) {
+      if (!parentComment) {
         return NextResponse.json<ApiResponse>({
           success: false,
           error: 'Parent comment not found'
         }, { status: 404 });
       }
 
-      const parentComment = parentResult.rows[0];
-      if (parentComment.deleted) {
+      if (parentComment.is_deleted) {
         return NextResponse.json<ApiResponse>({
           success: false,
           error: 'Cannot reply to deleted comment'
         }, { status: 400 });
       }
 
-      if (parentComment.media_id !== media_id) {
+      if (parentComment.media_id !== parseInt(media_id)) {
         return NextResponse.json<ApiResponse>({
           success: false,
           error: 'Parent comment media_id mismatch'
@@ -228,34 +218,47 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert comment
-    const result = await db`
-      INSERT INTO comments (
-        user_id, media_id, parent_comment_id, content, tag,
-        username, profile_picture_url, is_mod, is_admin
-      ) VALUES (
-        ${user.anilist_user_id},
-        ${media_id},
-        ${parent_comment_id || null},
-        ${content.trim()},
-        ${tag},
-        ${user.username},
-        ${user.profile_picture_url || null},
-        ${user.is_mod},
-        ${user.is_admin}
-      )
-      RETURNING *
-    `;
+    // Create comment
+    const newComment = await db.comment.create({
+      data: {
+        media_id: parseInt(media_id),
+        media_type: media_type || 'ANIME',
+        content: content.trim(),
+        anilist_user_id: user.anilist_user_id,
+        parent_comment_id: parent_comment_id || null,
+        user: {
+          connect: { anilist_user_id: user.anilist_user_id }
+        }
+      },
+      include: {
+        user: true
+      }
+    });
 
-    const newComment = {
-      ...result.rows[0],
-      user_vote_type: null,
+    // Format response
+    const formattedComment = {
+      id: newComment.id,
+      media_id: newComment.media_id,
+      media_type: newComment.media_type,
+      content: newComment.content,
+      anilist_user_id: newComment.anilist_user_id,
+      parent_comment_id: newComment.parent_comment_id,
+      upvotes: newComment.upvotes,
+      downvotes: newComment.downvotes,
+      user_vote: 0,
+      is_mod: newComment.user.is_mod,
+      is_admin: newComment.user.is_admin,
+      is_deleted: newComment.is_deleted,
+      created_at: newComment.created_at,
+      updated_at: newComment.updated_at,
+      username: newComment.user.username,
+      profile_picture_url: newComment.user.profile_picture_url,
       replies: []
     };
 
     return NextResponse.json<ApiResponse>({
       success: true,
-      data: newComment,
+      data: formattedComment,
       message: 'Comment created successfully'
     }, { status: 201 });
 

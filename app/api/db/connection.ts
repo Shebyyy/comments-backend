@@ -1,52 +1,44 @@
-import { sql } from '@vercel/postgres';
+import { PrismaClient } from '@prisma/client';
 
-/**
- * Vercel Postgres using sql template literals
- * No manual connection needed - perfect for serverless
- * Automatically uses POSTGRES_URL from environment
- */
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
 
-export const db = sql;
+export function createClient() {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: process.env.POSTGRES_URL,
+        },
+      },
+      log: ['error'],
+    });
+  }
+  return globalForPrisma.prisma;
+}
 
-/**
- * Test database connection
- */
-export async function testConnection() {
+export const db = createClient();
+
+// Connect to database
+export async function connectDatabase() {
   try {
-    const result = await sql`SELECT NOW() as current_time`;
-    console.log('✅ Database connected:', result.rows[0]);
+    await db.$connect();
     return true;
   } catch (error) {
-    console.error('❌ Database connection failed:', error);
+    console.error('Database connection failed:', error);
     return false;
   }
 }
 
-/**
- * Check if required tables exist
- */
-export async function checkDatabaseReady() {
+export async function testConnection() {
   try {
-    const result = await sql`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
-      AND table_name IN ('users', 'comments', 'comment_votes', 'rate_limits')
-    `;
-    
-    const tables = result.rows.map((row: any) => row.table_name);
-    const requiredTables = ['users', 'comments', 'comment_votes', 'rate_limits'];
-    const missingTables = requiredTables.filter(t => !tables.includes(t));
-    
-    if (missingTables.length > 0) {
-      console.warn('⚠️ Missing tables:', missingTables);
-      return false;
-    }
-    
-    console.log('✅ All required tables exist');
+    await connectDatabase();
+    const result = await db.$queryRaw`SELECT NOW()`;
+    console.log('Database connected:', result);
     return true;
   } catch (error) {
-    console.error('❌ Database check failed:', error);
+    console.error('Database connection failed:', error);
     return false;
   }
 }

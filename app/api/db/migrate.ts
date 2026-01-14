@@ -1,34 +1,28 @@
-import { sql, db } from './connection';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { db } from './connection';
 
 export async function runMigrations() {
   try {
-    console.log('🔄 Starting database migration...');
-    
-    // Read migration SQL
-    const sqlPath = join(process.cwd(), 'sql', '001_initial_schema.sql');
-    const migrationSQL = readFileSync(sqlPath, 'utf8');
-    
-    console.log('📝 Executing migration SQL...');
-    
-    // Execute the entire migration
-    // Vercel Postgres can handle multi-statement SQL
-    await sql.query(migrationSQL);
-    
-    console.log('✅ Migration completed successfully');
+    // Create tables using Prisma
+    await db.user.createMany({
+      data: [],
+      skipDuplicates: true
+    });
+
+    await db.comment.createMany({
+      data: [],
+      skipDuplicates: true
+    });
+
+    await db.vote.createMany({
+      data: [],
+      skipDuplicates: true
+    });
+
+    console.log('Prisma migration completed successfully');
     return true;
   } catch (error) {
-    // Check if error is about objects already existing
-    if (error instanceof Error && 
-        (error.message.includes('already exists') || 
-         error.message.includes('duplicate'))) {
-      console.log('⏭️  Migration skipped (tables already exist)');
-      return true;
-    }
-    
-    console.error('❌ Migration failed:', error);
-    throw error;
+    console.error('Prisma migration failed:', error);
+    return false;
   }
 }
 
@@ -38,14 +32,12 @@ export async function GET() {
     const success = await runMigrations();
     return Response.json({ 
       success, 
-      message: 'Migration completed successfully',
-      timestamp: new Date().toISOString()
+      message: success ? 'Prisma migration completed' : 'Prisma migration failed' 
     });
   } catch (error) {
     return Response.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString()
+      error: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }
 }

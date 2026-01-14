@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const anilistUser = await verifyAniListToken(token);
     
     // Check rate limit
-    await checkRateLimit(anilistUser.id, 'vote');
+    await checkRateLimit(anilistUser.id, 'vote', db);
 
     const body: VoteRequest = await request.json();
     const { comment_id, vote_type } = body;
@@ -39,21 +39,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if comment exists and is not deleted
-    const commentResult = await db`
-      SELECT comment_id, deleted, user_id as comment_author_id
-      FROM comments 
-      WHERE comment_id = ${comment_id}
-    `;
+    const comment = await db.comment.findUnique({
+      where: { id: comment_id }
+    });
 
-    if (commentResult.rows.length === 0) {
+    if (!comment) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Comment not found'
       }, { status: 404 });
     }
 
-    const comment = commentResult.rows[0];
-    if (comment.deleted) {
+    if (comment.is_deleted) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Cannot vote on deleted comment'
@@ -61,7 +58,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Prevent voting on own comments
-    if (comment.comment_author_id === anilistUser.id) {
+    if (comment.anilist_user_id === anilistUser.id) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Cannot vote on your own comment'
@@ -69,36 +66,74 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert vote (insert or update)
-    const voteResult = await db`
-      INSERT INTO comment_votes (comment_id, user_id, vote_type)
-      VALUES (${comment_id}, ${anilistUser.id}, ${vote_type})
-      ON CONFLICT (comment_id, user_id) 
-      DO UPDATE SET 
-        vote_type = EXCLUDED.vote_type,
-        created_at = NOW()
-      RETURNING vote_type
-    `;
+    const existingVote = await db.vote.findUnique({
+      where: {
+        comment_id: comment_id,
+        user_id: anilistUser.id
+      }
+    });
 
-    const newVoteType = voteResult.rows[0].vote_type;
+    let vote;
+    if (existingVote) {
+      // Update existing vote
+      if (existingVote.vote_type === vote_type) {
+        // Remove vote if same vote type
+        await db.vote.delete({
+          where: {
+            comment_id: comment_id,
+            user_id: anilistUser.id
+          }
+        });
+        vote = null;
+      } else {
+        // Update vote type
+        vote = await db.vote.update({
+          where: {
+            comment_id: comment_id,
+            user_id: anilistUser.id
+          },
+          data: {
+            vote_type: vote_type
+          }
+        });
+      }
+    } else {
+      // Create new vote
+      vote = await db.vote.create({
+        data: {
+          comment_id: comment_id,
+          user_id: anilistUser.id,
+          vote_type: vote_type
+        }
+      });
+    }
 
-    // Get updated comment vote counts
-    const updatedCommentResult = await db`
-      SELECT upvotes, downvotes, total_votes
-      FROM comments 
-      WHERE comment_id = ${comment_id}
-    `;
+    // Update comment vote counts
+    const votes = await db.vote.findMany({
+      where: { comment_id: comment_id }
+    });
 
-    const updatedComment = updatedCommentResult.rows[0];
+    const upvotes = votes.filter(v => v.vote_type === 1).length;
+    const downvotes = votes.filter(v => v.vote_type === -1).length;
 
-    return NextResponse.json<ApiResponse>({
+    // Update comment with new vote counts
+    await db.comment.update({
+      where: { id: comment_id },
+      data: {
+        upvotes,
+        downvotes
+      }
+    });
+
+    return NextResponse<ApiResponse>({
       success: true,
       data: {
-        vote_type: newVoteType,
-        upvotes: updatedComment.upvotes,
-        downvotes: updatedComment.downvotes,
-        total_votes: updatedComment.total_votes
+        vote_type: vote ? vote.vote_type : 0,
+        upvotes,
+        downvotes,
+        total_votes: upvotes + downvotes
       },
-      message: 'Vote recorded successfully'
+      message: vote ? 'Vote recorded successfully' : 'Vote removed successfully'
     });
 
   } catch (error) {
