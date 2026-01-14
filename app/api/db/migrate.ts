@@ -1,19 +1,34 @@
-import { db, connectDatabase } from './connection';
+import { sql, db } from './connection';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
 export async function runMigrations() {
   try {
-    await connectDatabase();
+    console.log('🔄 Starting database migration...');
+    
+    // Read migration SQL
     const sqlPath = join(process.cwd(), 'sql', '001_initial_schema.sql');
     const migrationSQL = readFileSync(sqlPath, 'utf8');
     
-    await db.query(migrationSQL);
-    console.log('Migration completed successfully');
+    console.log('📝 Executing migration SQL...');
+    
+    // Execute the entire migration
+    // Vercel Postgres can handle multi-statement SQL
+    await sql.query(migrationSQL);
+    
+    console.log('✅ Migration completed successfully');
     return true;
   } catch (error) {
-    console.error('Migration failed:', error);
-    return false;
+    // Check if error is about objects already existing
+    if (error instanceof Error && 
+        (error.message.includes('already exists') || 
+         error.message.includes('duplicate'))) {
+      console.log('⏭️  Migration skipped (tables already exist)');
+      return true;
+    }
+    
+    console.error('❌ Migration failed:', error);
+    throw error;
   }
 }
 
@@ -23,12 +38,14 @@ export async function GET() {
     const success = await runMigrations();
     return Response.json({ 
       success, 
-      message: success ? 'Migration completed' : 'Migration failed' 
+      message: 'Migration completed successfully',
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     return Response.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
     }, { status: 500 });
   }
 }
