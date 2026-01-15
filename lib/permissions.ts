@@ -1,11 +1,8 @@
 import { User, Comment, ActionType } from '@/lib/types';
+import { Role as PrismaRole } from '@prisma/client';
 
-export enum Role {
-  SUPER_ADMIN = 'SUPER_ADMIN',
-  ADMIN = 'ADMIN',
-  MODERATOR = 'MODERATOR',
-  USER = 'USER'
-}
+// Re-export Prisma Role as our Role for consistency
+export const Role = PrismaRole;
 
 export enum Permission {
   // User Management
