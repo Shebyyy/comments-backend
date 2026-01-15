@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       data: {
         upvotes,
         downvotes,
-        total_votes
+        total_votes: totalVotes
       }
     });
 
