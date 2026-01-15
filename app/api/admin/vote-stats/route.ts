@@ -88,6 +88,13 @@ export async function GET(request: NextRequest) {
             is_admin: true,
             role: true
           }
+        },
+        _count: {
+          select: {
+            replies: {
+              where: { is_deleted: false }
+            }
+          }
         }
       },
       take: 10
