@@ -1,4 +1,4 @@
-import { Role } from '@/lib/permissions';
+import { RoleType } from '@/lib/permissions';
 import { TagType } from '@prisma/client';
 
 export interface AniListUser {
@@ -16,7 +16,7 @@ export interface User {
   anilist_user_id: number;
   username: string;
   profile_picture_url: string | null | undefined;
-  role: Role;
+  role: RoleType;
   is_mod: boolean; // Keep for backward compatibility
   is_admin: boolean; // Keep for backward compatibility
   is_banned: boolean;
@@ -59,14 +59,14 @@ export interface Comment {
   profile_picture_url: string | null;
   is_mod: boolean;
   is_admin: boolean;
-  role?: Role;
+  role?: RoleType;
   tags?: CommentTag[];
   user?: {
     id?: string;
     anilist_user_id: number;
     is_mod: boolean;
     is_admin: boolean;
-    role?: Role;
+    role?: RoleType;
     username: string;
     profile_picture_url: string | null;
   };
@@ -87,7 +87,7 @@ export interface VoterInfo {
   user_id: number;
   username: string;
   profile_picture_url: string | null;
-  role: Role;
+  role: RoleType;
   vote_type: -1 | 0 | 1;
   created_at: Date;
 }
@@ -218,14 +218,14 @@ export interface VoteListResponse {
     user_id: number;
     username: string;
     profile_picture_url?: string;
-    role?: Role;
+    role?: RoleType;
     created_at: Date;
   }[];
   downvotes: {
     user_id: number;
     username: string;
     profile_picture_url?: string;
-    role?: Role;
+    role?: RoleType;
     created_at: Date;
   }[];
 }
@@ -314,7 +314,7 @@ export interface UpdateCommentRequest {
 // New role management interfaces
 export interface RoleChangeRequest {
   target_user_id: number;
-  new_role: Role;
+  new_role: RoleType;
   reason?: string;
 }
 
@@ -322,8 +322,8 @@ export interface RoleChange {
   id: string;
   target_user_id: number;
   changed_by_user_id: number;
-  old_role: Role;
-  new_role: Role;
+  old_role: RoleType;
+  new_role: RoleType;
   reason?: string;
   created_at: Date;
 }
