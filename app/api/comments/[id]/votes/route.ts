@@ -66,7 +66,7 @@ export async function GET(
       .map(vote => ({
         user_id: vote.user_id,
         username: vote.user.username,
-        profile_picture_url: vote.user.profile_picture_url,
+        profile_picture_url: vote.user.profile_picture_url || undefined, // Convert null to undefined
         created_at: vote.created_at
       }));
 
@@ -75,7 +75,7 @@ export async function GET(
       .map(vote => ({
         user_id: vote.user_id,
         username: vote.user.username,
-        profile_picture_url: vote.user.profile_picture_url,
+        profile_picture_url: vote.user.profile_picture_url || undefined, // Convert null to undefined
         created_at: vote.created_at
       }));
 
