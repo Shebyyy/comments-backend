@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { canEditComment } from '@/lib/permissions';
+import { canEditComment, getUserRole, Role } from '@/lib/permissions';
 import { EditCommentRequest, ApiResponse } from '@/lib/types';
+import { logUserAction } from '@/lib/audit';
 
-export async function PUT(
+export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -49,16 +50,15 @@ export async function PUT(
 
     // Get comment with user data
     const comment = await db.comment.findUnique({
-      where: {
-        id: commentId,
-        is_deleted: false
-      },
+      where: { id: commentId },
       include: {
         user: {
           select: {
+            id: true,
             anilist_user_id: true,
             is_mod: true,
             is_admin: true,
+            role: true,
             username: true,
             profile_picture_url: true
           }
@@ -80,54 +80,58 @@ export async function PUT(
       profile_picture_url: comment.user.profile_picture_url,
       is_mod: comment.user.is_mod,
       is_admin: comment.user.is_admin,
-      edit_history: comment.edit_history as any[] || [] // Properly cast edit_history
+      role: comment.user.role,
+      user: comment.user,
+      edit_history: comment.edit_history as any[] || []
     };
 
-    const requestingUser = {
-      anilist_user_id: anilistUser.id,
-      username: anilistUser.name,
-      profile_picture_url: anilistUser.avatar?.large || anilistUser.avatar?.medium,
-      is_mod: user.is_mod,
-      is_admin: user.is_admin,
-      created_at: new Date(),
-      updated_at: new Date(),
-      last_active: new Date()
-    };
-
-    // Check permissions
-    if (!canEditComment(transformedComment, requestingUser)) {
+    // Check permissions using new role system
+    if (!canEditComment(transformedComment, user)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Insufficient permissions to edit this comment'
       }, { status: 403 });
     }
 
-    // Get current edit history
-    const currentHistory = comment.edit_history as any[] || [];
-    
-    // Add current content to edit history
+    // Store edit history
+    const currentEditHistory = comment.edit_history as any[] || [];
     const newEditEntry = {
       content: comment.content,
-      edited_at: new Date(),
+      edited_at: new Date().toISOString(),
       reason: reason || null
     };
 
-    const updatedHistory = [...currentHistory, newEditEntry];
-
-    // Update comment
+    // Update comment with edit history
     const updatedComment = await db.comment.update({
-      where: {
-        id: commentId
-      },
+      where: { id: commentId },
       data: {
         content: content.trim(),
         is_edited: true,
-        edit_history: updatedHistory,
-        updated_at: new Date()
+        updated_at: new Date(),
+        edit_history: [...currentEditHistory, newEditEntry]
       },
       include: {
-        user: true
+        user: {
+          select: {
+            id: true,
+            anilist_user_id: true,
+            username: true,
+            profile_picture_url: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
+          }
+        },
+        tags: true
       }
+    });
+
+    // Create audit log
+    await logUserAction(request, user.anilist_user_id, 'EDIT_COMMENT', 'comment', commentId, {
+      original_content: comment.content,
+      new_content: content.trim(),
+      reason: reason || null,
+      depth_level: comment.depth_level
     });
 
     // Format response
@@ -135,21 +139,26 @@ export async function PUT(
       id: updatedComment.id,
       media_id: updatedComment.media_id,
       media_type: updatedComment.media_type,
+      parent_comment_id: updatedComment.parent_comment_id,
+      root_comment_id: updatedComment.root_comment_id,
+      depth_level: updatedComment.depth_level,
       content: updatedComment.content,
       anilist_user_id: updatedComment.anilist_user_id,
-      parent_comment_id: updatedComment.parent_comment_id,
       upvotes: updatedComment.upvotes,
       downvotes: updatedComment.downvotes,
-      is_edited: updatedComment.is_edited,
-      edit_history: updatedComment.edit_history,
       is_deleted: updatedComment.is_deleted,
+      is_edited: updatedComment.is_edited,
+      is_pinned: updatedComment.is_pinned,
+      pin_expires: updatedComment.pin_expires,
+      edit_history: updatedComment.edit_history,
       created_at: updatedComment.created_at,
       updated_at: updatedComment.updated_at,
       username: updatedComment.user.username,
       profile_picture_url: updatedComment.user.profile_picture_url,
       is_mod: updatedComment.user.is_mod,
       is_admin: updatedComment.user.is_admin,
-      replies: []
+      role: updatedComment.user.role,
+      tags: updatedComment.tags
     };
 
     return NextResponse.json<ApiResponse>({
@@ -159,7 +168,7 @@ export async function PUT(
     });
 
   } catch (error) {
-    console.error('PUT comment error:', error);
+    console.error('PATCH comment error:', error);
     
     if (error instanceof Error) {
       if (error.message.includes('Rate limit')) {

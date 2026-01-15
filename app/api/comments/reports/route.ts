@@ -57,9 +57,19 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Check if comment exists
+    // Check if comment exists (allow reporting replies in nested threads)
     const comment = await db.comment.findUnique({
-      where: { id: comment_id }
+      where: { id: comment_id },
+      include: {
+        user: {
+          select: {
+            anilist_user_id: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
+          }
+        }
+      }
     });
 
     if (!comment) {
@@ -67,6 +77,14 @@ export async function POST(request: NextRequest) {
         success: false,
         error: 'Comment not found'
       }, { status: 404 });
+    }
+
+    // Allow reporting replies even if parent is deleted, but not deleted comments themselves
+    if (comment.is_deleted) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Cannot report deleted comment'
+      }, { status: 400 });
     }
 
     // Check if user already reported this comment

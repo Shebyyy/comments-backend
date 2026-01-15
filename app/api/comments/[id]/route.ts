@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { canDeleteComment, hasOverridePermission } from '@/lib/permissions';
+import { canDeleteComment, getUserRole, Role } from '@/lib/permissions';
 import { ApiResponse } from '@/lib/types';
 
 export async function DELETE(
@@ -44,9 +44,11 @@ export async function DELETE(
       include: {
         user: {
           select: {
+            id: true,
             anilist_user_id: true,
             is_mod: true,
             is_admin: true,
+            role: true,
             username: true,
             profile_picture_url: true
           }
@@ -68,48 +70,60 @@ export async function DELETE(
       profile_picture_url: comment.user.profile_picture_url,
       is_mod: comment.user.is_mod,
       is_admin: comment.user.is_admin,
-      edit_history: comment.edit_history as any[] || [] // Properly cast edit_history
+      role: comment.user.role,
+      user: comment.user,
+      edit_history: comment.edit_history as any[] || []
     };
 
-    const requestingUser = {
-      anilist_user_id: anilistUser.id,
-      username: anilistUser.name,
-      profile_picture_url: anilistUser.avatar?.large || anilistUser.avatar?.medium,
-      is_mod: user.is_mod,
-      is_admin: user.is_admin,
-      created_at: new Date(),
-      updated_at: new Date(),
-      last_active: new Date()
-    };
-
-    // Check permissions with admin override
-    if (!hasOverridePermission(requestingUser) && !canDeleteComment(transformedComment, requestingUser)) {
+    // Check permissions using new role system
+    if (!canDeleteComment(transformedComment, user)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Insufficient permissions to delete this comment'
       }, { status: 403 });
     }
 
-    // Soft delete the comment
+    const userRole = getUserRole(user);
     const deleteReason = transformedComment.anilist_user_id === anilistUser.id 
       ? '[deleted by user]' 
-      : (requestingUser.is_admin ? '[deleted by admin]' : '[deleted by moderator]');
+      : (userRole === Role.ADMIN ? '[deleted by admin]' : '[deleted by moderator]');
 
+    // Soft delete the comment (preserve thread structure)
     await db.comment.update({
       where: {
         id: commentId
       },
       data: {
         is_deleted: true,
+        deleted_by: user.anilist_user_id,
+        delete_reason: deleteReason,
         updated_at: new Date(),
-        content: deleteReason
+        content: '[deleted]' // Keep placeholder for thread structure
       }
     });
 
-    // If moderator/admin is deleting, also delete all replies recursively
-    if (requestingUser.is_mod || requestingUser.is_admin) {
-      await deleteRepliesRecursively(commentId, db, requestingUser.is_admin ? '[deleted by admin]' : '[deleted by moderator]');
-    }
+    // Create audit log
+    await db.auditLog.create({
+      data: {
+        user_id: user.anilist_user_id,
+        action: 'DELETE_COMMENT',
+        target_type: 'comment',
+        target_id: commentId,
+        details: {
+          original_content: comment.content,
+          reason: deleteReason,
+          is_self_delete: transformedComment.anilist_user_id === anilistUser.id,
+          depth_level: comment.depth_level,
+          parent_comment_id: comment.parent_comment_id
+        },
+        ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
+        user_agent: request.headers.get('user-agent')
+      }
+    });
+
+    // Note: For Reddit-like behavior, we DON'T delete replies when a comment is deleted
+    // Replies remain visible and maintain thread structure even if parent is deleted
+    // This preserves conversation context and thread integrity
 
     return NextResponse.json<ApiResponse>({
       success: true,
@@ -142,7 +156,7 @@ export async function DELETE(
   }
 }
 
-async function deleteRepliesRecursively(parentCommentId: string, db: any, deleteReason: string) {
+async function deleteRepliesRecursively(parentCommentId: string, db: any, deleteReason: string, deleterUserId: number, request: NextRequest) {
   // Get all direct replies
   const replies = await db.comment.findMany({
     where: {
@@ -150,7 +164,8 @@ async function deleteRepliesRecursively(parentCommentId: string, db: any, delete
       is_deleted: false
     },
     select: {
-      id: true
+      id: true,
+      content: true
     }
   });
 
@@ -167,7 +182,24 @@ async function deleteRepliesRecursively(parentCommentId: string, db: any, delete
       }
     });
 
+    // Create audit log for reply deletion
+    await db.auditLog.create({
+      data: {
+        user_id: deleterUserId,
+        action: 'DELETE_REPLY',
+        target_type: 'comment',
+        target_id: reply.id,
+        details: {
+          original_content: reply.content,
+          reason: deleteReason,
+          parent_comment_id: parentCommentId
+        },
+        ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
+        user_agent: request.headers.get('user-agent')
+      }
+    });
+
     // Recursively delete nested replies
-    await deleteRepliesRecursively(reply.id, db, deleteReason);
+    await deleteRepliesRecursively(reply.id, db, deleteReason, deleterUserId, request);
   }
 }

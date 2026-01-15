@@ -15,11 +15,15 @@ model User {
   anilist_user_id   Int       @unique
   username          String
   profile_picture_url String?
-  is_mod            Boolean   @default(false)
-  is_admin          Boolean   @default(false)
+  role              Role      @default(USER)
+  is_mod            Boolean   @default(false) // Keep for backward compatibility
+  is_admin          Boolean   @default(false) // Keep for backward compatibility
   is_banned         Boolean   @default(false)
   ban_reason        String?
   ban_expires       DateTime?
+  shadow_banned     Boolean   @default(false)
+  shadow_ban_reason String?
+  shadow_ban_expires DateTime?
   warning_count     Int       @default(0)
   last_active       DateTime  @default(now())
   created_at        DateTime  @default(now())
@@ -32,6 +36,10 @@ model User {
   bans_received     Ban[] @relation("BansReceived")
   warnings_received Warning[] @relation("WarningsReceived")
   warnings_given    Warning[] @relation("WarningsGiven")
+  role_changes_made RoleChange[] @relation("RoleChangesMade")
+  role_changes_received RoleChange[] @relation("RoleChangesReceived")
+  comment_tags      CommentTag[] @relation("UserCommentTags")
+  audit_logs        AuditLog[]
 
   @@map("users")
 }
@@ -42,11 +50,19 @@ model Comment {
   media_type        MediaType
   content           String
   anilist_user_id   Int
-  parent_comment_id String?
+  parent_comment_id String?   // null for top-level comments
+  root_comment_id   String?   // ID of the original top-level comment
+  depth_level       Int       @default(0) // Nesting depth level
   upvotes           Int       @default(0)
   downvotes         Int       @default(0)
+  total_votes       Int       @default(0) // Cached total votes count
+  user_vote_type    Int?      // Current user's vote type (for optimized queries)
   is_deleted        Boolean   @default(false)
+  deleted_by        Int?      // User who deleted the comment
+  delete_reason     String?   // Reason for deletion
   is_edited         Boolean   @default(false)
+  is_pinned         Boolean   @default(false)
+  pin_expires       DateTime?
   edit_history      Json?     // Store edit history
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
@@ -54,9 +70,17 @@ model Comment {
   user              User      @relation("UserComments", fields: [anilist_user_id], references: [anilist_user_id])
   parent_comment     Comment?  @relation("CommentReplies", fields: [parent_comment_id], references: [id])
   replies           Comment[] @relation("CommentReplies")
+  root_comment      Comment?  @relation("CommentThreads", fields: [root_comment_id], references: [id])
+  thread_replies    Comment[] @relation("CommentThreads")
   votes             Vote[]
   reports           Report[]
+  tags              CommentTag[]
 
+  @@index([media_id, media_type])
+  @@index([parent_comment_id])
+  @@index([root_comment_id])
+  @@index([total_votes])
+  @@index([created_at])
   @@map("comments")
 }
 
@@ -64,13 +88,15 @@ model Vote {
   id         String     @id @default(cuid())
   comment_id String
   user_id    Int
-  vote_type  Int        // 1 for upvote, -1 for downvote
+  vote_type  Int        // 1 for upvote, -1 for downvote, 0 for neutral
   created_at DateTime   @default(now())
 
   user       User       @relation("UserVotes", fields: [user_id], references: [anilist_user_id])
   comment    Comment    @relation(fields: [comment_id], references: [id])
 
   @@unique([comment_id, user_id])
+  @@index([comment_id, vote_type])
+  @@index([user_id, created_at])
   @@map("votes")
 }
 
@@ -148,4 +174,63 @@ enum ReportStatus {
   REVIEWED
   RESOLVED
   DISMISSED
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MODERATOR
+  USER
+}
+
+enum TagType {
+  SPOILER
+  PINNED
+  WARNING
+}
+
+model CommentTag {
+  id                String   @id @default(cuid())
+  comment_id        String
+  tag_type          TagType
+  tagged_by_user_id Int
+  created_at        DateTime @default(now())
+  expires_at        DateTime?
+
+  comment           Comment  @relation(fields: [comment_id], references: [id])
+  tagged_by_user    User     @relation("UserCommentTags", fields: [tagged_by_user_id], references: [anilist_user_id])
+
+  @@unique([comment_id, tag_type])
+  @@map("comment_tags")
+}
+
+model RoleChange {
+  id                  String   @id @default(cuid())
+  target_user_id      Int
+  changed_by_user_id  Int
+  old_role            Role
+  new_role            Role
+  reason              String?
+  created_at          DateTime @default(now())
+
+  target_user         User     @relation("RoleChangesReceived", fields: [target_user_id], references: [anilist_user_id])
+  changed_by_user     User     @relation("RoleChangesMade", fields: [changed_by_user_id], references: [anilist_user_id])
+
+  @@map("role_changes")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  user_id     Int
+  action      String
+  target_type String?
+  target_id   String?
+  details     Json?
+  ip_address  String?
+  user_agent  String?
+  created_at  DateTime @default(now())
+
+  user        User     @relation(fields: [user_id], references: [anilist_user_id])
+
+  @@map("audit_logs")
 }

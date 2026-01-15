@@ -1,4 +1,5 @@
 import { AniListUser } from '@/lib/types';
+import { Role } from '@/lib/permissions';
 
 export async function verifyAniListToken(token: string): Promise<AniListUser> {
   if (!token) {
@@ -61,10 +62,20 @@ export async function upsertUser(anilistUser: AniListUser, db: any) {
   // Check if this is the super admin user (ASheby - 5724017)
   const isSuperAdmin = anilistUser.id === 5724017;
   
-  // For super admin, always grant both mod and admin regardless of AniList status
-  // For others, use AniList moderator status
-  const isMod = isSuperAdmin || anilistUser.moderatorStatus === 'MODERATOR' || anilistUser.moderatorStatus === 'ADMIN';
-  const isAdmin = isSuperAdmin || anilistUser.moderatorStatus === 'ADMIN';
+  // Determine role based on AniList status and special cases
+  let role: Role = Role.USER;
+  
+  if (isSuperAdmin) {
+    role = Role.SUPER_ADMIN;
+  } else if (anilistUser.moderatorStatus === 'ADMIN') {
+    role = Role.ADMIN;
+  } else if (anilistUser.moderatorStatus === 'MODERATOR') {
+    role = Role.MODERATOR;
+  }
+
+  // For backward compatibility, set boolean flags
+  const isMod = role === Role.MODERATOR || role === Role.ADMIN || role === Role.SUPER_ADMIN;
+  const isAdmin = role === Role.ADMIN || role === Role.SUPER_ADMIN;
 
   try {
     const user = await db.user.upsert({
@@ -74,6 +85,7 @@ export async function upsertUser(anilistUser: AniListUser, db: any) {
       update: {
         username: anilistUser.name,
         profile_picture_url: anilistUser.avatar?.large || anilistUser.avatar?.medium,
+        role: role,
         is_mod: isMod,
         is_admin: isAdmin,
         last_active: new Date()
@@ -82,6 +94,7 @@ export async function upsertUser(anilistUser: AniListUser, db: any) {
         anilist_user_id: anilistUser.id,
         username: anilistUser.name,
         profile_picture_url: anilistUser.avatar?.large || anilistUser.avatar?.medium,
+        role: role,
         is_mod: isMod,
         is_admin: isAdmin,
         last_active: new Date()

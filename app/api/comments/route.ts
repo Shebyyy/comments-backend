@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { CreateCommentRequest, Comment, ApiResponse } from '@/lib/types';
+import { CreateCommentRequest, Comment, ApiResponse, NestedCommentsResponse } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
     const sortBy = searchParams.get('sort') || 'newest';
     const parentId = searchParams.get('parent_id');
+    const maxDepth = parseInt(searchParams.get('max_depth') || '10');
+    const includeDeleted = searchParams.get('include_deleted') === 'true';
 
     if (!mediaId) {
       return NextResponse.json<ApiResponse>({
@@ -51,8 +53,12 @@ export async function GET(request: NextRequest) {
       media_id: mediaIdNum,
       media_type: mediaType,
       parent_comment_id: parentId || null,
-      is_deleted: false
+      depth_level: { lte: maxDepth }
     };
+
+    if (!includeDeleted) {
+      whereClause.is_deleted = false;
+    }
 
     // Build order by
     let orderBy: any = { created_at: 'desc' };
@@ -65,24 +71,31 @@ export async function GET(request: NextRequest) {
       orderBy = { created_at: 'asc' };
     }
 
-    // Fetch comments
+    // Fetch comments with nested structure
     const comments = await db.comment.findMany({
       where: whereClause,
       orderBy,
       include: {
-        user: true,
+        user: {
+          select: {
+            id: true,
+            anilist_user_id: true,
+            username: true,
+            profile_picture_url: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
+          }
+        },
         votes: userId ? {
           where: { user_id: userId }
-        } : true,
-        replies: {
-          where: { is_deleted: false },
-          orderBy: { created_at: 'asc' },
-          take: 10,
-          include: {
-            user: true,
-            votes: userId ? {
-              where: { user_id: userId }
-            } : true
+        } : false,
+        tags: true,
+        _count: {
+          select: {
+            replies: {
+              where: includeDeleted ? {} : { is_deleted: false }
+            }
           }
         }
       },
@@ -95,44 +108,47 @@ export async function GET(request: NextRequest) {
       where: whereClause
     });
 
-    // Format response
-    const formattedComments = comments.map(comment => ({
-      id: comment.id,
-      media_id: comment.media_id,
-      media_type: comment.media_type,
-      content: comment.content,
-      anilist_user_id: comment.anilist_user_id,
-      parent_comment_id: comment.parent_comment_id,
-      upvotes: comment.upvotes,
-      downvotes: comment.downvotes,
-      user_vote: (comment.votes && comment.votes.length > 0) ? comment.votes[0].vote_type : 0,
-      is_mod: comment.user?.is_mod || false,
-      is_admin: comment.user?.is_admin || false,
-      is_deleted: comment.is_deleted,
-      created_at: comment.created_at,
-      updated_at: comment.updated_at,
-      username: comment.user?.username || 'Unknown',
-      profile_picture_url: comment.user?.profile_picture_url || null,
-        replies: comment.replies.map(reply => ({
-          id: reply.id,
-          media_id: reply.media_id,
-          media_type: reply.media_type,
-          content: reply.content,
-          anilist_user_id: reply.anilist_user_id,
-          parent_comment_id: reply.parent_comment_id,
-          upvotes: reply.upvotes,
-          downvotes: reply.downvotes,
-          user_vote: (reply.votes && reply.votes.length > 0) ? reply.votes[0].vote_type : 0,
-          is_mod: reply.user?.is_mod || false,
-          is_admin: reply.user?.is_admin || false,
-          is_edited: reply.is_edited || false,
-          is_deleted: reply.is_deleted,
-          created_at: reply.created_at,
-          updated_at: reply.updated_at,
-          username: reply.user?.username || 'Unknown',
-          profile_picture_url: reply.user?.profile_picture_url || null
-        }))
+    // Format response with nested structure
+    const formattedComments = await Promise.all(comments.map(async (comment) => {
+      // Get nested replies recursively
+      const nestedReplies = await getNestedReplies(comment.id, userId, maxDepth, 1, includeDeleted);
+      
+      return {
+        id: comment.id,
+        media_id: comment.media_id,
+        media_type: comment.media_type,
+        parent_comment_id: comment.parent_comment_id,
+        root_comment_id: comment.root_comment_id,
+        depth_level: comment.depth_level,
+        content: comment.is_deleted ? '[deleted]' : comment.content,
+        anilist_user_id: comment.anilist_user_id,
+        upvotes: comment.upvotes,
+        downvotes: comment.downvotes,
+        total_votes: comment.total_votes,
+        user_vote_type: (comment.votes && comment.votes.length > 0) ? comment.votes[0].vote_type : null,
+        is_deleted: comment.is_deleted,
+        deleted_by: comment.deleted_by,
+        delete_reason: comment.delete_reason,
+        is_edited: comment.is_edited,
+        is_pinned: comment.is_pinned,
+        pin_expires: comment.pin_expires,
+        created_at: comment.created_at,
+        updated_at: comment.updated_at,
+        username: comment.user?.username || 'Unknown',
+        profile_picture_url: comment.user?.profile_picture_url || null,
+        is_mod: comment.user?.is_mod || false,
+        is_admin: comment.user?.is_admin || false,
+        role: comment.user?.role,
+        tags: comment.tags,
+        reply_count: comment._count.replies,
+        replies: nestedReplies
+      };
     }));
+
+    // Calculate maximum depth in response
+    const responseMaxDepth = Math.max(...formattedComments.map(c => 
+      Math.max(c.depth_level, ...getAllDepths(c.replies || []))
+    ), 0);
 
     return NextResponse.json<ApiResponse>({
       success: true,
@@ -141,7 +157,8 @@ export async function GET(request: NextRequest) {
         hasMore: offset + comments.length < total,
         total,
         page,
-        limit
+        limit,
+        max_depth: responseMaxDepth
       }
     });
 
@@ -152,6 +169,95 @@ export async function GET(request: NextRequest) {
       error: 'Internal server error'
     }, { status: 500 });
   }
+}
+
+async function getNestedReplies(
+  parentId: string, 
+  userId: number | null, 
+  maxDepth: number, 
+  currentDepth: number,
+  includeDeleted: boolean
+): Promise<Comment[]> {
+  if (currentDepth >= maxDepth) return [];
+
+  const replies = await db.comment.findMany({
+    where: {
+      parent_comment_id: parentId,
+      depth_level: currentDepth,
+      ...(includeDeleted ? {} : { is_deleted: false })
+    },
+    orderBy: { created_at: 'asc' },
+    include: {
+      user: {
+        select: {
+          id: true,
+          anilist_user_id: true,
+          username: true,
+          profile_picture_url: true,
+          is_mod: true,
+          is_admin: true,
+          role: true
+        }
+      },
+      votes: userId ? {
+        where: { user_id: userId }
+      } : false,
+      tags: true,
+      _count: {
+        select: {
+          replies: {
+            where: includeDeleted ? {} : { is_deleted: false }
+          }
+        }
+      }
+    }
+  });
+
+  return await Promise.all(replies.map(async (reply) => {
+    const nestedReplies = await getNestedReplies(reply.id, userId, maxDepth, currentDepth + 1, includeDeleted);
+    
+    return {
+      id: reply.id,
+      media_id: reply.media_id,
+      media_type: reply.media_type,
+      parent_comment_id: reply.parent_comment_id,
+      root_comment_id: reply.root_comment_id,
+      depth_level: reply.depth_level,
+      content: reply.is_deleted ? '[deleted]' : reply.content,
+      anilist_user_id: reply.anilist_user_id,
+      upvotes: reply.upvotes,
+      downvotes: reply.downvotes,
+      total_votes: reply.total_votes,
+      user_vote_type: (reply.votes && reply.votes.length > 0) ? reply.votes[0].vote_type : null,
+      is_deleted: reply.is_deleted,
+      deleted_by: reply.deleted_by,
+      delete_reason: reply.delete_reason,
+      is_edited: reply.is_edited,
+      is_pinned: reply.is_pinned,
+      pin_expires: reply.pin_expires,
+      created_at: reply.created_at,
+      updated_at: reply.updated_at,
+      username: reply.user?.username || 'Unknown',
+      profile_picture_url: reply.user?.profile_picture_url || null,
+      is_mod: reply.user?.is_mod || false,
+      is_admin: reply.user?.is_admin || false,
+      role: reply.user?.role,
+      tags: reply.tags,
+      reply_count: reply._count.replies,
+      replies: nestedReplies
+    };
+  }));
+}
+
+function getAllDepths(comments: Comment[]): number[] {
+  const depths: number[] = [];
+  for (const comment of comments) {
+    depths.push(comment.depth_level);
+    if (comment.replies && comment.replies.length > 0) {
+      depths.push(...getAllDepths(comment.replies));
+    }
+  }
+  return depths;
 }
 
 export async function POST(request: NextRequest) {
@@ -191,10 +297,23 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Check if parent comment exists (if provided)
+    let rootCommentId: string | null = null;
+    let depthLevel = 0;
+
+    // Handle parent comment logic for nested replies
     if (parent_comment_id) {
       const parentComment = await db.comment.findUnique({
-        where: { id: parent_comment_id }
+        where: { id: parent_comment_id },
+        include: {
+          user: {
+            select: {
+              anilist_user_id: true,
+              is_mod: true,
+              is_admin: true,
+              role: true
+            }
+          }
+        }
       });
 
       if (!parentComment) {
@@ -204,11 +323,18 @@ export async function POST(request: NextRequest) {
         }, { status: 404 });
       }
 
-      if (parentComment.is_deleted) {
+      // Check depth limit (prevent infinite nesting)
+      if (parentComment.depth_level >= 20) {
         return NextResponse.json<ApiResponse>({
           success: false,
-          error: 'Cannot reply to deleted comment'
+          error: 'Maximum nesting depth reached'
         }, { status: 400 });
+      }
+
+      // Users can reply to deleted comments to preserve thread structure
+      if (parentComment.is_deleted) {
+        // Allow reply but note it's to a deleted comment
+        console.log(`User ${anilistUser.id} replying to deleted comment ${parent_comment_id}`);
       }
 
       if (parentComment.media_id !== media_id) {
@@ -217,19 +343,34 @@ export async function POST(request: NextRequest) {
           error: 'Parent comment media_id mismatch'
         }, { status: 400 });
       }
+
+      rootCommentId = parentComment.root_comment_id || parentComment.id;
+      depthLevel = parentComment.depth_level + 1;
     }
 
-    // Create comment
+    // Create comment with nested support
     const newComment = await db.comment.create({
       data: {
         media_id: media_id,
         media_type: media_type || 'ANIME',
         content: content.trim(),
         anilist_user_id: user.anilist_user_id,
-        parent_comment_id: parent_comment_id || null
+        parent_comment_id: parent_comment_id || null,
+        root_comment_id: rootCommentId,
+        depth_level: depthLevel
       },
       include: {
-        user: true
+        user: {
+          select: {
+            id: true,
+            anilist_user_id: true,
+            username: true,
+            profile_picture_url: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
+          }
+        }
       }
     });
 
@@ -238,21 +379,28 @@ export async function POST(request: NextRequest) {
       id: newComment.id,
       media_id: newComment.media_id,
       media_type: newComment.media_type,
+      parent_comment_id: newComment.parent_comment_id,
+      root_comment_id: newComment.root_comment_id,
+      depth_level: newComment.depth_level,
       content: newComment.content,
       anilist_user_id: newComment.anilist_user_id,
-      parent_comment_id: newComment.parent_comment_id,
       upvotes: newComment.upvotes,
       downvotes: newComment.downvotes,
-      user_vote: 0,
-      is_mod: newComment.user.is_mod,
-      is_admin: newComment.user.is_admin,
-      is_edited: newComment.is_edited || false,
-      edit_history: newComment.edit_history || null,
+      total_votes: newComment.total_votes,
+      user_vote_type: null,
       is_deleted: newComment.is_deleted,
+      is_edited: newComment.is_edited,
+      is_pinned: newComment.is_pinned,
+      pin_expires: newComment.pin_expires,
       created_at: newComment.created_at,
       updated_at: newComment.updated_at,
       username: newComment.user.username,
       profile_picture_url: newComment.user.profile_picture_url,
+      is_mod: newComment.user.is_mod,
+      is_admin: newComment.user.is_admin,
+      role: newComment.user.role,
+      tags: [],
+      reply_count: 0,
       replies: []
     };
 
