@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
         vote_type: newVoteType || 0,
         upvotes,
         downvotes,
-        total_votes,
+        total_votes: totalVotes,
         user_vote_type: newVoteType
       },
       message: newVoteType 
@@ -280,7 +280,7 @@ export async function GET(request: NextRequest) {
         comment_id: commentId,
         upvotes,
         downvotes,
-        total_votes,
+        total_votes: totalVotes,
         user_vote_type: userVote,
         is_deleted: comment.is_deleted
       }
