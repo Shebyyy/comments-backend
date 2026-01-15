@@ -156,7 +156,8 @@ export function canDeleteReply(reply: Comment, user: User): boolean {
   
   // Moderator can delete any reply except from Super Admin
   if (userRole === Role.MODERATOR) {
-    const replyAuthorRole = getUserRole(reply.user);
+    if (!reply.user) return false; // Cannot check role if user is undefined
+    const replyAuthorRole = reply.user.role || Role.USER; // Use partial user's role directly
     return replyAuthorRole !== Role.SUPER_ADMIN;
   }
   
