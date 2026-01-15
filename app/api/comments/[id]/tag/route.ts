@@ -3,6 +3,7 @@ import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { canTagComment } from '@/lib/permissions';
 import { CreateCommentTagRequest, ApiResponse } from '@/lib/types';
+import { TagType } from '@prisma/client';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -29,8 +30,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }, { status: 400 });
     }
 
+    // Validate that tag_type is a valid TagType enum value
+    if (!Object.values(TagType).includes(tag_type as TagType)) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Invalid tag_type. Must be one of: ' + Object.values(TagType).join(', ')
+      }, { status: 400 });
+    }
+
+    // Cast string to TagType enum
+    const tagTypeEnum = tag_type as TagType;
+
     // Check if user can tag comments
-    if (!canTagComment(user, tag_type)) {
+    if (!canTagComment(user, tagTypeEnum)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Insufficient permissions to tag comments'
@@ -61,7 +73,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       where: {
         comment_id_tag_type: {
           comment_id: params.id,
-          tag_type: tag_type
+          tag_type: tagTypeEnum
         }
       },
       update: {
@@ -71,7 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       },
       create: {
         comment_id: params.id,
-        tag_type: tag_type,
+        tag_type: tagTypeEnum,
         tagged_by_user_id: user.anilist_user_id,
         expires_at: expires_at ? new Date(expires_at) : null
       },
@@ -83,7 +95,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     });
 
     // Special handling for PINNED tag
-    if (tag_type === 'PINNED') {
+    if (tagTypeEnum === 'PINNED') {
       await db.comment.update({
         where: { id: params.id },
         data: {
@@ -96,7 +108,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json<ApiResponse>({
       success: true,
       data: commentTag,
-      message: `Comment tagged as ${tag_type} successfully`
+      message: `Comment tagged as ${tagTypeEnum} successfully`
     });
 
   } catch (error) {
@@ -132,8 +144,19 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       }, { status: 400 });
     }
 
+    // Validate that tag_type is a valid TagType enum value
+    if (!Object.values(TagType).includes(tag_type as TagType)) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Invalid tag_type. Must be one of: ' + Object.values(TagType).join(', ')
+      }, { status: 400 });
+    }
+
+    // Cast string to TagType enum
+    const tagTypeEnum = tag_type as TagType;
+
     // Check if user can tag comments
-    if (!canTagComment(user, tag_type)) {
+    if (!canTagComment(user, tagTypeEnum)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Insufficient permissions to remove comment tags'
@@ -145,13 +168,13 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       where: {
         comment_id_tag_type: {
           comment_id: params.id,
-          tag_type: tag_type
+          tag_type: tagTypeEnum
         }
       }
     });
 
     // Special handling for PINNED tag
-    if (tag_type === 'PINNED') {
+    if (tagTypeEnum === 'PINNED') {
       await db.comment.update({
         where: { id: params.id },
         data: {
@@ -164,7 +187,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     return NextResponse.json<ApiResponse>({
       success: true,
       data: deletedTag,
-      message: `Comment ${tag_type} tag removed successfully`
+      message: `Comment ${tagTypeEnum} tag removed successfully`
     });
 
   } catch (error) {
