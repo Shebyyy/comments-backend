@@ -1,4 +1,4 @@
-# Enhanced Comments Backend - Complete Documentation
+# Comments Backend - Complete Documentation
 
 ## 📋 Table of Contents
 1. [Overview](#overview)
@@ -17,7 +17,7 @@
 
 ## 🎯 Overview
 
-The Enhanced Comments Backend is a comprehensive, production-ready comment system built with **Next.js 14**, **TypeScript**, and **PostgreSQL** via **Prisma ORM**. It provides advanced moderation features, nested replies, real-time voting, and a sophisticated permission system designed specifically for anime/manga communities.
+The Comments Backend is a comprehensive, production-ready comment system built with **Next.js 14**, **TypeScript**, and **PostgreSQL** via **Prisma ORM**. It provides advanced moderation features, nested replies, real-time voting, and a sophisticated permission system designed specifically for anime/manga communities.
 
 ### Key Technologies
 - **Framework**: Next.js 14 with App Router
@@ -1153,7 +1153,7 @@ console.log('Downvotes:', votesData.data.downvotes);
 
 ## 📄 License
 
-This Enhanced Comments Backend is licensed under the MIT License. See LICENSE file for details.
+This Comments Backend is licensed under the MIT License. See LICENSE file for details.
 
 ---
 
