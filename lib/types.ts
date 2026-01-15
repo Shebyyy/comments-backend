@@ -369,6 +369,6 @@ export interface CreateAuditLogRequest {
   target_type?: string;
   target_id?: string;
   details?: any;
-  ip_address?: string;
-  user_agent?: string;
+  ip_address: string | null;
+  user_agent: string | null;
 }
