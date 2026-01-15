@@ -15,16 +15,16 @@ export interface User {
   anilist_user_id: number;
   username: string;
   profile_picture_url: string | null | undefined;
-  role?: Role;
+  role: Role | undefined;
   is_mod: boolean; // Keep for backward compatibility
   is_admin: boolean; // Keep for backward compatibility
-  is_banned?: boolean;
-  ban_reason?: string;
-  ban_expires?: Date;
-  shadow_banned?: boolean;
-  shadow_ban_reason?: string;
-  shadow_ban_expires?: Date;
-  warning_count?: number;
+  is_banned: boolean;
+  ban_reason: string | null | undefined;
+  ban_expires: Date | null | undefined;
+  shadow_banned: boolean;
+  shadow_ban_reason: string | null | undefined;
+  shadow_ban_expires: Date | null | undefined;
+  warning_count: number;
   created_at: Date;
   updated_at: Date;
   last_active: Date;
@@ -44,14 +44,14 @@ export interface Comment {
   upvotes: number;
   downvotes: number;
   total_votes: number;
-  user_vote_type?: number; // Current user's vote type
+  user_vote_type: number | null; // Current user's vote type
   is_deleted: boolean;
-  deleted_by?: number;
-  delete_reason?: string;
-  is_edited?: boolean;
-  is_pinned?: boolean;
-  pin_expires?: Date;
-  edit_history?: any; // JSON field storing edit history
+  deleted_by: number | null;
+  delete_reason: string | null;
+  is_edited: boolean;
+  is_pinned: boolean;
+  pin_expires: Date | null;
+  edit_history: any; // JSON field storing edit history
   created_at: Date;
   updated_at: Date;
   username: string;
