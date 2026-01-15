@@ -334,7 +334,7 @@ export interface CommentTag {
   tag_type: TagType;
   tagged_by_user_id: number;
   created_at: Date;
-  expires_at?: Date;
+  expires_at: Date | null;
 }
 
 export interface CreateCommentTagRequest {
