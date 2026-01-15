@@ -79,7 +79,8 @@ export async function PUT(
       username: comment.user.username,
       profile_picture_url: comment.user.profile_picture_url,
       is_mod: comment.user.is_mod,
-      is_admin: comment.user.is_admin
+      is_admin: comment.user.is_admin,
+      edit_history: comment.edit_history as any[] || [] // Properly cast edit_history
     };
 
     const requestingUser = {
