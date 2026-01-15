@@ -207,6 +207,11 @@ export async function GET(request: NextRequest) {
       count: d._count.depth_level
     })).sort((a, b) => a.depth_level - b.depth_level);
 
+    // Calculate overall vote statistics
+    const total_upvotes = recentVotes.filter(v => v.vote_type === 1).length;
+    const total_downvotes = recentVotes.filter(v => v.vote_type === -1).length;
+    const total_votes = total_upvotes + total_downvotes;
+
     return NextResponse.json<ApiResponse>({
       success: true,
       data: {
