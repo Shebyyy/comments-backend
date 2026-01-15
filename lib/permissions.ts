@@ -128,7 +128,7 @@ export function canDeleteComment(comment: Comment, user: User): boolean {
   // Moderator can delete any comment except from Super Admin
   if (userRole === Role.MODERATOR) {
     if (!comment.user) return false; // Cannot check role if user is undefined
-    const commentAuthorRole = getUserRole(comment.user);
+    const commentAuthorRole = comment.user.role || Role.USER; // Use partial user's role directly
     return commentAuthorRole !== Role.SUPER_ADMIN;
   }
   
