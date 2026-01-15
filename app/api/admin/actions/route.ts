@@ -265,15 +265,6 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
 }
 
 async function handleRoleChange(request: NextRequest, user: any, anilistUser: any, action: string) {
-  // Check if user can promote/demote (super admin can always do this)
-  const targetUser = await db.user.findUnique({...});
-  if (!isSuperAdmin(user) && (!targetUser || !canPromoteDemote(user, targetUser, newRole))) {
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Insufficient permissions to change user roles'
-    }, { status: 403 });
-  }
-
   const body: AdminActionRequest = await request.json();
   const { user_id, role } = body;
 
@@ -303,6 +294,17 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
       success: false,
       error: 'Target user not found'
     }, { status: 404 });
+  }
+
+  // Map role string to Role enum
+  const newRole = role === 'admin' ? 'ADMIN' : 'MODERATOR';
+
+  // Check if user can promote/demote (super admin can always do this)
+  if (!isSuperAdmin(user) && (!targetUser || !canPromoteDemote(user, targetUser, newRole))) {
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: 'Insufficient permissions to change user roles'
+    }, { status: 403 });
   }
 
   // Only admins can manage admin roles (super admin can do anything)
