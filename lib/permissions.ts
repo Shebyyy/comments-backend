@@ -80,6 +80,16 @@ export function canDeleteComment(comment: Comment, user: User): boolean {
 }
 
 export function canEditComment(comment: Comment, user: User): boolean {
+  // Super admin can edit any comment
+  if (isSuperAdmin(user)) {
+    return true;
+  }
+  
+  // Admin can edit any comment
+  if (user.is_admin) {
+    return true;
+  }
+  
   // Only original author can edit, and only if not deleted
   return comment.anilist_user_id === user.anilist_user_id && !comment.is_deleted;
 }
