@@ -1,4 +1,5 @@
-import { Role, TagType } from '@/lib/permissions';
+import { Role } from '@/lib/permissions';
+import { TagType } from '@prisma/client';
 
 export interface AniListUser {
   id: number;
