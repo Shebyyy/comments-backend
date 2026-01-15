@@ -85,8 +85,8 @@ export interface CommentVote {
 export interface VoterInfo {
   user_id: number;
   username: string;
-  profile_picture_url?: string;
-  role?: Role;
+  profile_picture_url: string | null;
+  role: Role;
   vote_type: -1 | 0 | 1;
   created_at: Date;
 }
