@@ -266,7 +266,7 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
 
 async function handleRoleChange(request: NextRequest, user: any, anilistUser: any, action: string) {
   // Check if user can promote/demote (super admin can always do this)
-  if (!isSuperAdmin(user) && !canPromoteDemote(user, targetUser, newRole)) {
+  if (!isSuperAdmin(user) && (!targetUser || !canPromoteDemote(user, targetUser, newRole))) {
     return NextResponse.json<ApiResponse>({
       success: false,
       error: 'Insufficient permissions to change user roles'
