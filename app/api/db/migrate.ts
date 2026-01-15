@@ -1,4 +1,5 @@
 import { db } from './connection';
+import { PrismaClient } from '@prisma/client';
 
 export async function runMigrations() {
   try {
@@ -6,7 +7,6 @@ export async function runMigrations() {
     
     // Use Prisma push to sync schema with database
     // This creates tables based on Prisma schema
-    const { PrismaClient } = require('@prisma/client');
     const prisma = new PrismaClient();
     
     // Test connection and create tables
