@@ -1,5 +1,9 @@
 import { AniListUser } from '@/lib/types';
 import { Role } from '@/lib/permissions';
+import { Role as PrismaRole } from '@prisma/client';
+
+// Create a type alias for the Role
+type RoleType = PrismaRole;
 
 export async function verifyAniListToken(token: string): Promise<AniListUser> {
   if (!token) {
@@ -63,19 +67,19 @@ export async function upsertUser(anilistUser: AniListUser, db: any) {
   const isSuperAdmin = anilistUser.id === 5724017;
   
   // Determine role based on AniList status and special cases
-  let role: Role = Role.USER;
+  let role: RoleType = PrismaRole.USER;
   
   if (isSuperAdmin) {
-    role = Role.SUPER_ADMIN;
+    role = PrismaRole.SUPER_ADMIN;
   } else if (anilistUser.moderatorStatus === 'ADMIN') {
-    role = Role.ADMIN;
+    role = PrismaRole.ADMIN;
   } else if (anilistUser.moderatorStatus === 'MODERATOR') {
-    role = Role.MODERATOR;
+    role = PrismaRole.MODERATOR;
   }
 
   // For backward compatibility, set boolean flags
-  const isMod = role === Role.MODERATOR || role === Role.ADMIN || role === Role.SUPER_ADMIN;
-  const isAdmin = role === Role.ADMIN || role === Role.SUPER_ADMIN;
+  const isMod = role === PrismaRole.MODERATOR || role === PrismaRole.ADMIN || role === PrismaRole.SUPER_ADMIN;
+  const isAdmin = role === PrismaRole.ADMIN || role === PrismaRole.SUPER_ADMIN;
 
   try {
     const user = await db.user.upsert({
