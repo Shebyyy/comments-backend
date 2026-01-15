@@ -1,8 +1,8 @@
-# Enhanced Comments Backend API Documentation
+# Comments Backend API Documentation
 
 ## Overview
 
-This enhanced comments backend provides comprehensive admin/mod controls, user management, and advanced comment features for the AnymeX application.
+This comments backend provides comprehensive admin/mod controls, user management, and advanced comment features for the AnymeX application.
 
 ## Authentication
 
@@ -14,7 +14,7 @@ Authorization: Bearer <anilist_token>
 
 ## New Features Implemented
 
-### 1. Enhanced Admin/Mod Controls
+### 1. Admin/Mod Controls
 
 **Admin Override**: Admin users (like you) have complete override permissions and can control everything.
 
@@ -201,7 +201,7 @@ GET /api/comments/{comment_id}/votes
 }
 ```
 
-### 5. Enhanced Voting
+### 5. Voting
 
 #### Vote on Comment (Including Own Comments)
 ```http
@@ -236,7 +236,7 @@ POST /api/comments
 }
 ```
 
-### 7. Enhanced Deletion
+### 7. Deletion
 
 Users can now delete replied comments. When mods/admins delete a comment, all replies are also deleted recursively.
 
@@ -305,7 +305,7 @@ User ID **5724017** (ASheby) has automatic admin override permissions and can:
 - `bans`: User ban records
 - `warnings`: User warning records
 
-## Enhanced Comment Response Format
+## Comment Response Format
 
 All comment responses now include:
 ```json
