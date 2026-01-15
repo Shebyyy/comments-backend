@@ -1139,7 +1139,7 @@ console.log('Downvotes:', votesData.data.downvotes);
 ## 📞 Support & Contributing
 
 ### Getting Help
-- Check the [GitHub Issues](https://github.com/your-repo/issues) for common problems
+- Check the [GitHub Issues](Shebyyy/comments-backend/issues) for common problems
 - Review the API documentation above
 - Join our Discord community for real-time support
 
