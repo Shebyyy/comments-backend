@@ -51,7 +51,7 @@ export interface Comment {
   is_edited?: boolean;
   is_pinned?: boolean;
   pin_expires?: Date;
-  edit_history?: EditHistory[];
+  edit_history?: any; // JSON field storing edit history
   created_at: Date;
   updated_at: Date;
   username: string;
@@ -217,14 +217,97 @@ export interface VoteListResponse {
     user_id: number;
     username: string;
     profile_picture_url?: string;
+    role?: Role;
     created_at: Date;
   }[];
   downvotes: {
     user_id: number;
     username: string;
     profile_picture_url?: string;
+    role?: Role;
     created_at: Date;
   }[];
+}
+
+// Enhanced response types for better frontend integration
+export interface NestedCommentsResponse {
+  comments: Comment[];
+  hasMore: boolean;
+  total: number;
+  page: number;
+  limit: number;
+  max_depth: number;
+}
+
+export interface ThreadResponse {
+  comment: Comment;
+  replies: Comment[];
+  thread_stats: {
+    total_comments: number;
+    max_depth: number;
+    total_upvotes: number;
+    total_downvotes: number;
+  };
+}
+
+export interface EditHistory {
+  id: string;
+  comment_id: string;
+  old_content: string;
+  new_content: string;
+  edited_by: number;
+  edit_reason?: string;
+  created_at: Date;
+}
+
+// Enhanced vote statistics
+export interface VoteStatistics {
+  total_votes: number;
+  total_upvotes: number;
+  total_downvotes: number;
+  active_voters: number;
+  voting_trends: {
+    date: string;
+    upvotes: number;
+    downvotes: number;
+  }[];
+  depth_distribution: {
+    depth: number;
+    vote_count: number;
+  }[];
+}
+
+// WebSocket message types for real-time updates
+export interface WebSocketMessage {
+  type: 'new_comment' | 'vote_update' | 'comment_delete' | 'user_ban' | 'role_change';
+  data: any;
+  timestamp: Date;
+}
+
+// Notification types
+export interface Notification {
+  id: string;
+  user_id: number;
+  type: 'reply' | 'vote' | 'mention' | 'moderation';
+  title: string;
+  message: string;
+  data?: any;
+  read: boolean;
+  created_at: Date;
+}
+
+// Enhanced comment request with additional features
+export interface CreateCommentRequest {
+  media_id: number;
+  media_type?: MediaType;
+  content: string;
+  parent_comment_id?: string;
+  mentions?: number[]; // Array of user IDs mentioned
+}
+
+export interface UpdateCommentRequest {
+  content: string;
+  edit_reason?: string;
 }
 
 // New role management interfaces

@@ -270,6 +270,11 @@ export function isShadowBanned(user: User): boolean {
   return true; // Permanent shadow ban
 }
 
+export function canViewVotes(user: User): boolean {
+  const userRole = getUserRole(user);
+  return userRole === Role.SUPER_ADMIN || userRole === Role.ADMIN || userRole === Role.MODERATOR;
+}
+
 export function isSuperAdmin(user: User): boolean {
   return getUserRole(user) === Role.SUPER_ADMIN;
 }
