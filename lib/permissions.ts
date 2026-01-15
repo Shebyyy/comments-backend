@@ -92,16 +92,8 @@ export function getUserRole(user: User): Role {
     return Role.USER; // Shadow banned users appear as regular users
   }
   
-  // Use new role system, fallback to legacy boolean flags for backward compatibility
-  if (user.role) {
-    return user.role as Role;
-  }
-  
-  // Legacy fallback
-  if (user.anilist_user_id === 5724017) return Role.SUPER_ADMIN;
-  if (user.is_admin) return Role.ADMIN;
-  if (user.is_mod) return Role.MODERATOR;
-  return Role.USER;
+  // Use new role system (role is now guaranteed to exist)
+  return user.role;
 }
 
 export function hasPermission(user: User, permission: Permission): boolean {

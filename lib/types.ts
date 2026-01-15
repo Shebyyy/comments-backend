@@ -15,7 +15,7 @@ export interface User {
   anilist_user_id: number;
   username: string;
   profile_picture_url: string | null | undefined;
-  role: Role | undefined;
+  role: Role;
   is_mod: boolean; // Keep for backward compatibility
   is_admin: boolean; // Keep for backward compatibility
   is_banned: boolean;
