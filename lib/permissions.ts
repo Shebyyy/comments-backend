@@ -275,7 +275,5 @@ export function isSuperAdmin(user: User): boolean {
 }
 
 // Legacy functions for backward compatibility
-export function canPromoteDemote(user: User): boolean {
-  const role = getUserRole(user);
-  return role === Role.SUPER_ADMIN || role === Role.ADMIN;
-}
+// Note: canPromoteDemote legacy function removed to avoid duplicate definition
+// Use the main canPromoteDemote(actor, target, newRole) function instead
