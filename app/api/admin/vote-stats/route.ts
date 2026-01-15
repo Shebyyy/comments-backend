@@ -173,7 +173,7 @@ export async function GET(request: NextRequest) {
       
       if (vote.vote_type === 1) {
         acc[date].upvotes++;
-      } else if (vote.type === -1) {
+      } else if (vote.vote_type === -1) {
         acc[date].downvotes++;
       }
       acc[date].total++;
