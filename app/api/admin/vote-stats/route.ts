@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
       },
       orderBy: {
         _count: {
-          vote_type: true
+          vote_type: 'desc'
         }
       },
       take: 10
