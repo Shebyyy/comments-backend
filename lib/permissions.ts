@@ -4,6 +4,9 @@ import { Role as PrismaRole } from '@prisma/client';
 // Re-export Prisma Role as our Role for consistency
 export const Role = PrismaRole;
 
+// Create a type alias for Role using different name to avoid conflict
+export type RoleType = PrismaRole;
+
 export enum Permission {
   // User Management
   PROMOTE_DEMOTE_SUPER_ADMIN = 'promote_demote_super_admin',
@@ -83,7 +86,7 @@ export const ROLE_PERMISSIONS = {
   ]
 };
 
-export function getUserRole(user: User): Role {
+export function getUserRole(user: User): RoleType {
   // Check for shadow ban first
   if (user.shadow_banned && (!user.shadow_ban_expires || new Date() < user.shadow_ban_expires)) {
     return Role.USER; // Shadow banned users appear as regular users
@@ -98,7 +101,7 @@ export function hasPermission(user: User, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role].includes(permission);
 }
 
-export function canPromoteDemote(actor: User, target: User, newRole: Role): boolean {
+export function canPromoteDemote(actor: User, target: User, newRole: RoleType): boolean {
   const actorRole = getUserRole(actor);
   const targetRole = getUserRole(target);
   
