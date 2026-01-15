@@ -3,7 +3,11 @@ import { ActionType, RateLimitConfig } from '@/lib/types';
 export const RATE_LIMITS: Record<ActionType, RateLimitConfig> = {
   comment: { max: 5, window: 60 }, // 5 comments per hour
   vote: { max: 20, window: 60 },    // 20 votes per hour
-  delete: { max: 10, window: 60 }   // 10 deletions per hour
+  delete: { max: 10, window: 60 },   // 10 deletions per hour
+  edit: { max: 15, window: 60 },     // 15 edits per hour
+  report: { max: 10, window: 60 },   // 10 reports per hour
+  ban: { max: 5, window: 1440 },     // 5 bans per day
+  warn: { max: 20, window: 60 }      // 20 warnings per hour
 };
 
 export async function checkRateLimit(
