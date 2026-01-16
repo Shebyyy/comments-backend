@@ -106,7 +106,7 @@ export async function DELETE(
     const user = await upsertUser(anilistUser, db);
 
     // Check rate limit
-    const rateLimitResult = await checkRateLimit(anilistUser.id, 'delete_comment');
+    const rateLimitResult = await checkRateLimit(anilistUser.id, 'delete_comment', db);
     if (!rateLimitResult.allowed) {
       return NextResponse.json<ApiResponse>({
         success: false,
