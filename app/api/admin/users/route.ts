@@ -88,7 +88,6 @@ export async function GET(request: NextRequest) {
       shadow_banned: user.shadow_banned,
       ban_reason: user.ban_reason,
       ban_expires: user.ban_expires,
-      shadow_banned: user.shadow_banned,
       shadow_ban_reason: user.shadow_ban_reason,
       shadow_ban_expires: user.shadow_ban_expires,
       warning_count: user.warning_count,
