@@ -106,13 +106,7 @@ export async function DELETE(
     const user = await upsertUser(anilistUser, db);
 
     // Check rate limit
-    const rateLimitResult = await checkRateLimit(anilistUser.id, 'delete_comment', db);
-    if (!rateLimitResult.allowed) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Rate limit exceeded'
-      }, { status: 429 });
-    }
+    await checkRateLimit(anilistUser.id, 'delete', db);
 
     // Get comment with user data
     const comment = await db.comment.findUnique({
@@ -170,6 +164,23 @@ export async function DELETE(
 
   } catch (error) {
     console.error('Delete comment error:', error);
+
+    if (error instanceof Error) {
+      if (error.message.includes('Rate limit')) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: error.message
+        }, { status: 429 });
+      }
+
+      if (error.message.includes('Invalid') || error.message.includes('required')) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: error.message
+        }, { status: 400 });
+      }
+    }
+
     return NextResponse.json<ApiResponse>({
       success: false,
       error: 'Internal server error'
