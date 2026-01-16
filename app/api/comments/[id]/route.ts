@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
-import { ApiResponse } from '@/lib/types';
+import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCommentPermission } from '@/lib/permissions';
+import { ApiResponse } from '@/lib/types';
 import { createAuditLog } from '@/lib/audit';
 
 export async function GET(
