@@ -74,42 +74,60 @@ async function getFullCommentThread(commentId: number, maxDepth: number = 20, cu
     where: {
       parent_comment_id: commentId,
       depth_level: currentDepth + 1
+    },
+    orderBy: { created_at: 'asc' },
+    include: {
+      user: {
+        select: {
+          id: true,
+          anilist_user_id: true,
+          username: true,
+          profile_picture_url: true,
+          is_mod: true,
+          is_admin: true,
+          role: true
+        }
       },
-      orderBy: { created_at: 'asc' },
-      include: {
-        user: {
-          select: {
-            id: true,
-            anilist_user_id: true,
-            username: true,
-            profile_picture_url: true,
-            is_mod: true,
-            is_admin: true,
-            role: true
-          }
-        },
-        votes: true,
-        tags: true,
-        _count: {
-          select: {
-            replies: {
-              where: { is_deleted: false }
-            }
+      votes: true,
+      tags: true,
+      _count: {
+        select: {
+          replies: {
+            where: { is_deleted: false }
           }
         }
-    });
+      }
+    }
+  });
 
   // Recursively get nested replies
   const nestedReplies = await Promise.all(
       replies.map(async (reply) => {
-        const replyNestedReplies = await getFullCommentThread(reply.id, maxDepth, currentDepth + 1);
-        return { ...reply, replies: replyNestedReplies.replies };
+        return await getFullCommentThread(reply.id, maxDepth, currentDepth + 1);
       })
     );
 
   // Calculate vote counts
   const upvotes = comment.votes.filter(vote => vote.vote_type === 1).length;
   const downvotes = comment.votes.filter(vote => vote.vote_type === -1).length;
+
+  // Calculate thread statistics
+  const totalComments = 1 + nestedReplies.reduce((acc, thread) => {
+    return acc + (thread.thread_stats?.total_comments || 0);
+  }, 0);
+
+  const maxDepth = Math.max(
+    comment.depth_level,
+    ...nestedReplies.map(thread => thread.thread_stats?.max_depth || 0)
+  );
+
+  const totalUpvotes = upvotes + nestedReplies.reduce((acc, thread) => {
+    return acc + (thread.thread_stats?.total_upvotes || 0);
+  }, 0);
+
+  const totalDownvotes = downvotes + nestedReplies.reduce((acc, thread) => {
+    return acc + (thread.thread_stats?.total_downvotes || 0);
+  }, 0);
 
   return {
     comment: {
@@ -140,19 +158,13 @@ async function getFullCommentThread(commentId: number, maxDepth: number = 20, cu
       role: comment.user?.role,
       tags: comment.tags,
       reply_count: comment._count.replies,
-      replies: nestedReplies,
-      thread_stats: {
-        total_comments: 1 + nestedReplies.reduce((acc, reply) => {
-          return acc + 1 + (reply.thread_stats?.total_comments || 0);
-        }, 0),
-        max_depth: Math.max(comment.depth_level, ...nestedReplies.map(r => r.thread_stats?.max_depth || 0))
-      },
-      total_upvotes: upvotes + nestedReplies.reduce((acc, reply) => {
-        return acc + (reply.thread_stats?.total_upvotes || 0), 0),
-        total_downvotes: downvotes + nestedReplies.reduce((acc, reply) => {
-          return acc + (reply.thread_stats?.total_downvotes || 0), 0)
-        }
-      }
+      replies: nestedReplies.map(thread => thread.comment)
+    },
+    thread_stats: {
+      total_comments: totalComments,
+      max_depth: maxDepth,
+      total_upvotes: totalUpvotes,
+      total_downvotes: totalDownvotes
     }
   };
 }
