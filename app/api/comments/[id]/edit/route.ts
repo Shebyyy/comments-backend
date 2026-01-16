@@ -12,7 +12,10 @@ export async function PATCH(
 ) {
   try {
     const { id: commentId } = await params;
-    
+
+    // Convert commentId from string to number (Comment.id is now Int in schema)
+    const commentIdNumber = parseInt(commentId, 10);
+
     const authHeader = request.headers.get('authorization');
     if (!authHeader) {
       return NextResponse.json<ApiResponse>({
@@ -23,10 +26,10 @@ export async function PATCH(
 
     const token = authHeader.replace('Bearer ', '');
     const anilistUser = await verifyAniListToken(token);
-    
+
     // Upsert user to get current permissions
     const user = await upsertUser(anilistUser, db);
-    
+
     // Check rate limit
     await checkRateLimit(anilistUser.id, 'edit', db);
 
@@ -50,7 +53,7 @@ export async function PATCH(
 
     // Get comment with user data
     const comment = await db.comment.findUnique({
-      where: { id: commentId },
+      where: { id: commentIdNumber },
       include: {
         user: {
           select: {
@@ -103,7 +106,7 @@ export async function PATCH(
 
     // Update comment with edit history
     const updatedComment = await db.comment.update({
-      where: { id: commentId },
+      where: { id: commentIdNumber },
       data: {
         content: content.trim(),
         is_edited: true,
@@ -127,7 +130,7 @@ export async function PATCH(
     });
 
     // Create audit log
-    await logUserAction(request, user.anilist_user_id, 'EDIT_COMMENT', 'comment', commentId, {
+    await logUserAction(request, user.anilist_user_id, 'EDIT_COMMENT', 'comment', commentIdNumber, {
       original_content: comment.content,
       new_content: content.trim(),
       reason: reason || null,

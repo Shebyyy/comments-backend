@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     // Check if comment exists
     const comment = await db.comment.findUnique({
-      where: { id: params.id }
+      where: { id: parseInt(params.id, 10) }
     });
 
     if (!comment) {
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // Special handling for PINNED tag
     if (tagTypeEnum === 'PINNED') {
       await db.comment.update({
-        where: { id: params.id },
+        where: { id: parseInt(params.id, 10) },
         data: {
           is_pinned: true,
           pin_expires: expires_at ? new Date(expires_at) : null
@@ -176,7 +176,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     // Special handling for PINNED tag
     if (tagTypeEnum === 'PINNED') {
       await db.comment.update({
-        where: { id: params.id },
+        where: { id: parseInt(params.id, 10) },
         data: {
           is_pinned: false,
           pin_expires: null

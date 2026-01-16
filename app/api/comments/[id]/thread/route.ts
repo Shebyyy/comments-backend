@@ -14,14 +14,16 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Parse commentId to number for database queries (Comment.id is now Int)
+    const commentIdNumber = parseInt(commentId, 10);
+
     // Get full comment thread recursively
-    const fullThread = await getFullCommentThread(commentId);
+    const fullThread = await getFullCommentThread(commentIdNumber, 20, 0);
 
     return NextResponse.json<ApiResponse>({
       success: true,
       data: fullThread
     });
-
   } catch (error) {
     console.error('Get comment thread error:', error);
     return NextResponse.json<ApiResponse>({
@@ -31,35 +33,35 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function getFullCommentThread(commentId: string, maxDepth: number = 20, currentDepth: number = 0): Promise<any> {
+async function getFullCommentThread(commentId: number, maxDepth: number = 20, currentDepth: number = 0): Promise<any> {
   if (currentDepth >= maxDepth) {
     throw new Error('Maximum thread depth exceeded');
   }
 
-  // Get the comment
+  // Get comment
   const comment = await db.comment.findUnique({
-    where: { id: commentId },
-    include: {
-      user: {
-        select: {
-          id: true,
-          anilist_user_id: true,
-          username: true,
-          profile_picture_url: true,
-          is_mod: true,
-          is_admin: true,
-          role: true
-        }
-      },
-      votes: true,
-      tags: true,
-      _count: {
-        select: {
-          replies: {
-            where: { is_deleted: false }
+      where: { id: commentId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            anilist_user_id: true,
+            username: true,
+            profile_picture_url: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
+          }
+        },
+        votes: true,
+        tags: true,
+        _count: {
+          select: {
+            replies: {
+              where: { is_deleted: false }
+            }
           }
         }
-      }
     }
   });
 
@@ -72,43 +74,42 @@ async function getFullCommentThread(commentId: string, maxDepth: number = 20, cu
     where: {
       parent_comment_id: commentId,
       depth_level: currentDepth + 1
-    },
-    orderBy: { created_at: 'asc' },
-    include: {
-      user: {
-        select: {
-          id: true,
-          anilist_user_id: true,
-          username: true,
-          profile_picture_url: true,
-          is_mod: true,
-          is_admin: true,
-          role: true
-        }
       },
-      votes: true,
-      tags: true,
-      _count: {
-        select: {
-          replies: {
-            where: { is_deleted: false }
+      orderBy: { created_at: 'asc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            anilist_user_id: true,
+            username: true,
+            profile_picture_url: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
+          }
+        },
+        votes: true,
+        tags: true,
+        _count: {
+          select: {
+            replies: {
+              where: { is_deleted: false }
+            }
           }
         }
-      }
-    }
-  });
+    });
 
   // Recursively get nested replies
   const nestedReplies = await Promise.all(
-    replies.map(async (reply) => {
-      const replyNestedReplies = await getFullCommentThread(reply.id, maxDepth, currentDepth + 1);
-      return replyNestedReplies.comment;
-    })
-  );
+      replies.map(async (reply) => {
+        const replyNestedReplies = await getFullCommentThread(reply.id, maxDepth, currentDepth + 1);
+        return { ...reply, replies: replyNestedReplies.replies };
+      })
+    );
 
   // Calculate vote counts
-  const upvotes = comment.votes.filter(v => v.vote_type === 1).length;
-  const downvotes = comment.votes.filter(v => v.vote_type === -1).length;
+  const upvotes = comment.votes.filter(vote => vote.vote_type === 1).length;
+  const downvotes = comment.votes.filter(vote => vote.vote_type === -1).length;
 
   return {
     comment: {
@@ -122,12 +123,14 @@ async function getFullCommentThread(commentId: string, maxDepth: number = 20, cu
       anilist_user_id: comment.anilist_user_id,
       upvotes,
       downvotes,
+      total_votes: upvotes + downvotes,
       is_deleted: comment.is_deleted,
       deleted_by: comment.deleted_by,
       delete_reason: comment.delete_reason,
       is_edited: comment.is_edited,
       is_pinned: comment.is_pinned,
       pin_expires: comment.pin_expires,
+      edit_history: comment.edit_history,
       created_at: comment.created_at,
       updated_at: comment.updated_at,
       username: comment.user?.username || 'Unknown',
@@ -137,18 +140,19 @@ async function getFullCommentThread(commentId: string, maxDepth: number = 20, cu
       role: comment.user?.role,
       tags: comment.tags,
       reply_count: comment._count.replies,
-      replies: nestedReplies
-    },
-    thread_stats: {
-      total_comments: 1 + nestedReplies.reduce((acc, reply) => {
-        return acc + 1 + (reply.thread_stats?.total_comments || 0);
-      }, 0),
-      max_depth: Math.max(
-        comment.depth_level,
-        ...nestedReplies.map(r => r.thread_stats?.max_depth || 0)
-      ),
-      total_upvotes: upvotes + nestedReplies.reduce((acc, reply) => acc + reply.thread_stats?.total_upvotes || 0, 0),
-      total_downvotes: downvotes + nestedReplies.reduce((acc, reply) => acc + reply.thread_stats?.total_downvotes || 0, 0)
+      replies: nestedReplies,
+      thread_stats: {
+        total_comments: 1 + nestedReplies.reduce((acc, reply) => {
+          return acc + 1 + (reply.thread_stats?.total_comments || 0);
+        }, 0),
+        max_depth: Math.max(comment.depth_level, ...nestedReplies.map(r => r.thread_stats?.max_depth || 0))
+      },
+      total_upvotes: upvotes + nestedReplies.reduce((acc, reply) => {
+        return acc + (reply.thread_stats?.total_upvotes || 0), 0),
+        total_downvotes: downvotes + nestedReplies.reduce((acc, reply) => {
+          return acc + (reply.thread_stats?.total_downvotes || 0), 0)
+        }
+      }
     }
   };
 }

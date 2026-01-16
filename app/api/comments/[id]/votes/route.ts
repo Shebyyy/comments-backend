@@ -10,7 +10,10 @@ export async function GET(
 ) {
   try {
     const { id: commentId } = await params;
-    
+
+    // Convert commentId from string to number (Comment.id is now Int in schema)
+    const commentIdNumber = parseInt(commentId, 10);
+
     const authHeader = request.headers.get('authorization');
     if (!authHeader) {
       return NextResponse.json<ApiResponse>({
@@ -21,7 +24,7 @@ export async function GET(
 
     const token = authHeader.replace('Bearer ', '');
     const anilistUser = await verifyAniListToken(token);
-    
+
     // Upsert user to get current permissions
     const user = await upsertUser(anilistUser, db);
 
@@ -33,9 +36,30 @@ export async function GET(
       }, { status: 403 });
     }
 
-    // Check if comment exists
+    // Check if comment ID is valid
+    if (!commentIdNumber) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Comment ID is required'
+      }, { status: 400 });
+    }
+
+    // Get comment with user data
     const comment = await db.comment.findUnique({
-      where: { id: commentId }
+      where: { id: commentIdNumber },
+      include: {
+        user: {
+          select: {
+            id: true,
+            anilist_user_id: true,
+            username: true,
+            profile_picture_url: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
+          }
+        }
+      }
     });
 
     if (!comment) {
@@ -47,13 +71,17 @@ export async function GET(
 
     // Get all votes for this comment
     const votes = await db.vote.findMany({
-      where: { comment_id: commentId },
+      where: { comment_id: commentIdNumber },
       include: {
         user: {
           select: {
+            id: true,
             anilist_user_id: true,
             username: true,
-            profile_picture_url: true
+            profile_picture_url: true,
+            is_mod: true,
+            is_admin: true,
+            role: true
           }
         }
       },
@@ -61,28 +89,24 @@ export async function GET(
     });
 
     // Separate upvotes and downvotes
-    const upvotes = votes
-      .filter(vote => vote.vote_type === 1)
-      .map(vote => ({
-        user_id: vote.user_id,
-        username: vote.user.username,
-        profile_picture_url: vote.user.profile_picture_url || undefined, // Convert null to undefined
-        created_at: vote.created_at
-      }));
+    const upvotes = votes.filter(vote => vote.vote_type === 1);
+    const downvotes = votes.filter(vote => vote.vote_type === -1);
 
-    const downvotes = votes
-      .filter(vote => vote.vote_type === -1)
-      .map(vote => ({
-        user_id: vote.user_id,
-        username: vote.user.username,
-        profile_picture_url: vote.user.profile_picture_url || undefined, // Convert null to undefined
-        created_at: vote.created_at
-      }));
-
+    // Format response
     const response: VoteListResponse = {
       comment_id: commentId,
-      upvotes,
-      downvotes
+      upvotes: upvotes.map(vote => ({
+        user_id: vote.user_id,
+        username: vote.user.username,
+        profile_picture_url: vote.user.profile_picture_url || undefined,
+        created_at: vote.created_at
+      })),
+      downvotes: downvotes.map(vote => ({
+        user_id: vote.user_id,
+        username: vote.user.username,
+        profile_picture_url: vote.user.profile_picture_url || undefined,
+        created_at: vote.created_at
+      }))
     };
 
     return NextResponse.json<ApiResponse>({
