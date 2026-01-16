@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { checkCommentPermission } from '@/lib/permissions';
+import { canDeleteComment } from '@/lib/permissions';
 import { ApiResponse } from '@/lib/types';
-import { createAuditLog } from '@/lib/audit';
+import { logUserAction } from '@/lib/audit';
 
 export async function GET(
   request: NextRequest,
@@ -90,21 +90,23 @@ export async function DELETE(
 ) {
   try {
     const { id: commentId } = await params;
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('user_id');
-    const reason = searchParams.get('reason');
-
-    if (!userId) {
+    const authHeader = request.headers.get('authorization');
+    
+    if (!authHeader) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'user_id is required'
-      }, { status: 400 });
+        error: 'Authorization header required'
+      }, { status: 401 });
     }
 
-    const userIdNumber = parseInt(userId, 10);
+    const token = authHeader.replace('Bearer ', '');
+    const anilistUser = await verifyAniListToken(token);
+
+    // Upsert user to get current permissions
+    const user = await upsertUser(anilistUser, db);
 
     // Check rate limit
-    const rateLimitResult = await checkRateLimit(userIdNumber, 'delete_comment');
+    const rateLimitResult = await checkRateLimit(anilistUser.id, 'delete_comment');
     if (!rateLimitResult.allowed) {
       return NextResponse.json<ApiResponse>({
         success: false,
@@ -137,13 +139,7 @@ export async function DELETE(
     }
 
     // Check permissions using new role system
-    const canDelete = await checkCommentPermission(
-      userIdNumber,
-      comment,
-      'delete'
-    );
-
-    if (!canDelete) {
+    if (!canDeleteComment(comment, user)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Permission denied'
@@ -155,16 +151,15 @@ export async function DELETE(
       where: { id: parseInt(commentId, 10) },
       data: {
         is_deleted: true,
-        deleted_by: userIdNumber,
-        delete_reason: reason || null,
+        deleted_by: user.anilist_user_id,
+        delete_reason: null,
         content: '[deleted]'
       }
     });
 
     // Create audit log
-    await createAuditLog(userIdNumber, 'delete_comment', 'comment', commentId, {
-      comment_id: commentId,
-      reason: reason || null,
+    await logUserAction(request, user.anilist_user_id, 'delete_comment', 'comment', String(comment.id), {
+      comment_id: comment.id,
       original_content: comment.content
     });
 
