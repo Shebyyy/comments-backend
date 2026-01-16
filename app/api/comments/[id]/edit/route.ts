@@ -79,7 +79,6 @@ export async function PATCH(
     // Transform to match Comment interface
     const transformedComment = {
       ...comment,
-      id: String(comment.id), // Convert number to string to match Comment type
       username: comment.user.username,
       profile_picture_url: comment.user.profile_picture_url,
       is_mod: comment.user.is_mod,

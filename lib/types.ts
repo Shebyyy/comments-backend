@@ -34,12 +34,12 @@ export interface User {
 export type MediaType = 'ANIME' | 'MANGA';
 
 export interface Comment {
-  id: string;
+  id: number;
   anilist_user_id: number;
   media_id: number;
   media_type: MediaType;
-  parent_comment_id: string | null;
-  root_comment_id: string | null;
+  parent_comment_id: number | null;
+  root_comment_id: number | null;
   depth_level: number;
   content: string;
   upvotes: number;
@@ -76,8 +76,8 @@ export interface Comment {
 }
 
 export interface CommentVote {
-  id: string;
-  comment_id: string;
+  id: number;
+  comment_id: number;
   user_id: number;
   vote_type: -1 | 0 | 1; // Added 0 for neutral
   created_at: Date;
@@ -93,7 +93,7 @@ export interface VoterInfo {
 }
 
 export interface VoterListResponse {
-  comment_id: string;
+  comment_id: number;
   upvoters: VoterInfo[];
   downvoters: VoterInfo[];
   total_upvotes: number;
@@ -102,12 +102,12 @@ export interface VoterListResponse {
 }
 
 export interface VoteRequest {
-  comment_id: string;
+  comment_id: number;
   vote_type: -1 | 1;
 }
 
 export interface VoteToggleRequest {
-  comment_id: string;
+  comment_id: number;
   vote_action: 'up' | 'down' | 'neutral';
 }
 
@@ -142,8 +142,8 @@ export interface RateLimit {
 
 // Report interfaces
 export interface Report {
-  id: string;
-  comment_id: string;
+  id: number;
+  comment_id: number;
   reporter_user_id: number;
   reason: string;
   description?: string;
@@ -155,7 +155,7 @@ export interface Report {
 }
 
 export interface CreateReportRequest {
-  comment_id: string;
+  comment_id: number;
   reason: string;
   description?: string;
 }
@@ -213,7 +213,7 @@ export interface EditCommentRequest {
 
 // Vote viewing interface
 export interface VoteListResponse {
-  comment_id: string;
+  comment_id: number;
   upvotes: {
     user_id: number;
     username: string;
@@ -252,8 +252,8 @@ export interface ThreadResponse {
 }
 
 export interface EditHistory {
-  id: string;
-  comment_id: string;
+  id: number;
+  comment_id: number;
   old_content: string;
   new_content: string;
   edited_by: number;
@@ -302,7 +302,7 @@ export interface CreateCommentRequest {
   media_id: number;
   media_type?: MediaType;
   content: string;
-  parent_comment_id?: string;
+  parent_comment_id?: number;
   mentions?: number[]; // Array of user IDs mentioned
 }
 
@@ -330,8 +330,8 @@ export interface RoleChange {
 
 // Comment tagging interfaces
 export interface CommentTag {
-  id: string;
-  comment_id: string;
+  id: number;
+  comment_id: number;
   tag_type: TagType;
   tagged_by_user_id: number;
   created_at: Date;
@@ -339,7 +339,7 @@ export interface CommentTag {
 }
 
 export interface CreateCommentTagRequest {
-  comment_id: string;
+  comment_id: number;
   tag_type: TagType;
   expires_at?: Date;
 }
