@@ -298,9 +298,10 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
 
   // Map role string to Role enum
   const newRole = role === 'admin' ? 'ADMIN' : 'MODERATOR';
+  const userRole = role === 'admin' ? 'ADMIN' : 'MODERATOR';
 
   // Check if user can promote/demote (super admin can always do this)
-  if (!isSuperAdmin(user) && (!targetUser || !canPromoteDemote(user, targetUser, newRole))) {
+  if (!isSuperAdmin(user) && (!targetUser || !canPromoteDemote(user, targetUser, newRole as any))) {
     return NextResponse.json<ApiResponse>({
       success: false,
       error: 'Insufficient permissions to change user roles'
@@ -325,20 +326,37 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
     }
   }
 
-  // Prepare update data
+  // Prepare update data - CRITICAL FIX: Update role field properly
   let updateData: any = {
     updated_at: new Date()
   };
 
   if (role === 'admin') {
-    updateData.is_admin = action === 'promote';
-    updateData.is_mod = action === 'promote'; // Admins are also mods
+    if (action === 'promote') {
+      updateData.role = 'ADMIN';
+      updateData.is_admin = true;
+      updateData.is_mod = true; // Admins are also mods
+    } else {
+      // Demote from admin
+      updateData.role = 'USER';
+      updateData.is_admin = false;
+      updateData.is_mod = false;
+    }
   } else if (role === 'mod') {
-    updateData.is_mod = action === 'promote';
-    // Don't change admin status when modifying mod role
+    if (action === 'promote') {
+      updateData.role = 'MODERATOR';
+      updateData.is_mod = true;
+      // Don't change admin status when promoting to mod
+    } else {
+      // Demote from mod
+      updateData.role = 'USER';
+      updateData.is_mod = false;
+      // Also clear admin if they were an admin
+      updateData.is_admin = false;
+    }
   }
 
-  // Update user role
+  // Update user role in database
   const updatedUser = await db.user.update({
     where: { anilist_user_id: user_id },
     data: updateData
@@ -351,7 +369,8 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
       action: action,
       role: role,
       is_mod: updatedUser.is_mod,
-      is_admin: updatedUser.is_admin
+      is_admin: updatedUser.is_admin,
+      db_role: updatedUser.role // Return the actual database role for verification
     },
     message: `User ${action}d to ${role} successfully`
   });

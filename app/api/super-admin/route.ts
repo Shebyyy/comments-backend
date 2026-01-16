@@ -75,6 +75,7 @@ async function handleForceAdmin(request: NextRequest, superAdmin: any) {
   const updatedUser = await db.user.update({
     where: { anilist_user_id: user_id },
     data: {
+      role: 'ADMIN', // CRITICAL: Update role field
       is_admin: true,
       is_mod: true, // Admins are also mods
       updated_at: new Date()
@@ -85,6 +86,7 @@ async function handleForceAdmin(request: NextRequest, superAdmin: any) {
     success: true,
     data: {
       user_id: user_id,
+      role: updatedUser.role, // Return role
       is_admin: updatedUser.is_admin,
       is_mod: updatedUser.is_mod
     },
@@ -111,11 +113,13 @@ async function handleRemoveAdmin(request: NextRequest, superAdmin: any) {
     }, { status: 400 });
   }
 
-  // Remove admin status (but keep mod if they should be mod)
+  // Remove admin status (demote to USER)
   const updatedUser = await db.user.update({
     where: { anilist_user_id: user_id },
     data: {
+      role: 'USER', // CRITICAL: Update role field
       is_admin: false,
+      is_mod: false,
       updated_at: new Date()
     }
   });
@@ -124,6 +128,7 @@ async function handleRemoveAdmin(request: NextRequest, superAdmin: any) {
     success: true,
     data: {
       user_id: user_id,
+      role: updatedUser.role, // Return role
       is_admin: updatedUser.is_admin,
       is_mod: updatedUser.is_mod
     },
@@ -146,6 +151,7 @@ async function handleForceMod(request: NextRequest, superAdmin: any) {
   const updatedUser = await db.user.update({
     where: { anilist_user_id: user_id },
     data: {
+      role: 'MODERATOR', // CRITICAL: Update role field
       is_mod: true,
       updated_at: new Date()
     }
@@ -155,6 +161,7 @@ async function handleForceMod(request: NextRequest, superAdmin: any) {
     success: true,
     data: {
       user_id: user_id,
+      role: updatedUser.role, // Return role
       is_mod: updatedUser.is_mod,
       is_admin: updatedUser.is_admin
     },
@@ -181,10 +188,11 @@ async function handleRemoveMod(request: NextRequest, superAdmin: any) {
     }, { status: 400 });
   }
 
-  // Remove mod status (and admin since admins are also mods)
+  // Remove mod status (demote to USER)
   const updatedUser = await db.user.update({
     where: { anilist_user_id: user_id },
     data: {
+      role: 'USER', // CRITICAL: Update role field
       is_mod: false,
       is_admin: false,
       updated_at: new Date()
@@ -195,6 +203,7 @@ async function handleRemoveMod(request: NextRequest, superAdmin: any) {
     success: true,
     data: {
       user_id: user_id,
+      role: updatedUser.role, // Return role
       is_mod: updatedUser.is_mod,
       is_admin: updatedUser.is_admin
     },
