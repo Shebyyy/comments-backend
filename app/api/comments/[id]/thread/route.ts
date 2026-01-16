@@ -116,7 +116,7 @@ async function getFullCommentThread(commentId: number, maxDepth: number = 20, cu
     return acc + (thread.thread_stats?.total_comments || 0);
   }, 0);
 
-  const maxDepth = Math.max(
+  const maxThreadDepth = Math.max(
     comment.depth_level,
     ...nestedReplies.map(thread => thread.thread_stats?.max_depth || 0)
   );
@@ -162,7 +162,7 @@ async function getFullCommentThread(commentId: number, maxDepth: number = 20, cu
     },
     thread_stats: {
       total_comments: totalComments,
-      max_depth: maxDepth,
+      max_depth: maxThreadDepth,
       total_upvotes: totalUpvotes,
       total_downvotes: totalDownvotes
     }
