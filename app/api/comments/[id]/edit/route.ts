@@ -130,7 +130,7 @@ export async function PATCH(
     });
 
     // Create audit log
-    await logUserAction(request, user.anilist_user_id, 'EDIT_COMMENT', 'comment', commentIdNumber, {
+    await logUserAction(request, user.anilist_user_id, 'EDIT_COMMENT', 'comment', String(commentIdNumber), {
       original_content: comment.content,
       new_content: content.trim(),
       reason: reason || null,

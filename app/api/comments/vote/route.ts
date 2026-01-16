@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Log vote action
-    await logUserAction(request, anilistUser.id, 'VOTE', 'comment', comment_id, {
+    await logUserAction(request, anilistUser.id, 'VOTE', 'comment', String(comment_id), {
       vote_type: newVoteType,
       previous_vote_type: existingVote?.vote_type || null,
       comment_depth: comment.depth_level,
