@@ -15,34 +15,34 @@ datasource db {
 
 model User {
   id                String    @id @default(cuid())
-    anilist_user_id   Int       @unique
-    username          String
-    profile_picture_url String?
-    role              Role      @default(USER)
-    is_mod            Boolean   @default(false) // Keep for backward compatibility
-    is_admin          Boolean   @default(false) // Keep for backward compatibility
-    is_banned         Boolean   @default(false)
-    ban_reason        String?
-    ban_expires       DateTime?
-    shadow_banned     Boolean   @default(false)
-    shadow_ban_reason String?
-    shadow_ban_expires DateTime?
-    warning_count     Int       @default(0)
-    last_active       DateTime @default(now())
-    created_at        DateTime @default(now())
-    updated_at        DateTime   @updatedAt
+  anilist_user_id   Int       @unique
+  username          String
+  profile_picture_url String?
+  role              Role      @default(USER)
+  is_mod            Boolean   @default(false) // Keep for backward compatibility
+  is_admin          Boolean   @default(false) // Keep for backward compatibility
+  is_banned         Boolean   @default(false)
+  ban_reason        String?
+  ban_expires       DateTime?
+  shadow_banned     Boolean   @default(false)
+  shadow_ban_reason String?
+  shadow_ban_expires DateTime?
+  warning_count     Int       @default(0)
+  last_active       DateTime @default(now())
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
 
-    comments          Comment[] @relation("UserComments")
-    votes             Vote[] @relation("UserVotes")
-    reports           Report[] @relation("UserReports")
-    bans_given        Ban[] @relation("BansGiven")
-    bans_received     Ban[] @relation("BansReceived")
-    warnings_received Warning[] @relation("WarningsReceived")
-    warnings_given    Warning[] @relation("WarningsGiven")
-    role_changes_made RoleChange[] @relation("RoleChangesMade")
-    role_changes_received RoleChange[] @relation("RoleChangesReceived")
-    comment_tags      CommentTag[] @relation("UserCommentTags")
-    audit_logs        AuditLog[]
+  comments          Comment[] @relation("UserComments")
+  votes             Vote[] @relation("UserVotes")
+  reports           Report[] @relation("UserReports")
+  bans_given        Ban[] @relation("BansGiven")
+  bans_received     Ban[] @relation("BansReceived")
+  warnings_received Warning[] @relation("WarningsReceived")
+  warnings_given    Warning[] @relation("WarningsGiven")
+  role_changes_made RoleChange[] @relation("RoleChangesMade")
+  role_changes_received RoleChange[] @relation("RoleChangesReceived")
+  comment_tags      CommentTag[] @relation("UserCommentTags")
+  audit_logs        AuditLog[]
 
   @@map("users")
 }
@@ -68,7 +68,7 @@ model Comment {
   pin_expires       DateTime?
   edit_history      Json?     // Store edit history
   created_at        DateTime @default(now())
-  updated_at        DateTime   @updatedAt
+  updated_at        DateTime @updatedAt
 
   user              User      @relation("UserComments", fields: [anilist_user_id], references: [anilist_user_id])
   parent_comment     Comment? @relation("CommentReplies", fields: [parent_comment_id], references: [id])
@@ -88,10 +88,10 @@ model Comment {
 }
 
 model Vote {
-  id         String     @id @default(cuid())
-  comment_id String
+  id         Int     @id @default(autoincrement())
+  comment_id Int
   user_id    Int
-  vote_type Int        // 1 for upvote, -1 for downvote, 0 for neutral
+  vote_type Int        //1 for upvote, -1 for downvote, 0 for neutral
   created_at DateTime   @default(now())
 
   user       User       @relation("UserVotes", fields: [user_id], references: [anilist_user_id])
@@ -110,15 +110,15 @@ model RateLimit {
   action_count Int       @default(1)
   window_start DateTime
   window_end   DateTime
-  created_at   DateTime   @default(now())
+  created_at    DateTime @default(now())
 
   @@unique([user_id, action_type, window_start])
   @@map("rate_limits")
 }
 
 model Report {
-  id                String    @id @default(cuid())
-  comment_id        String
+  id                Int    @id @default(autoincrement())
+  comment_id        Int
   reporter_user_id  Int
   reason            String
   description       String?
@@ -130,7 +130,6 @@ model Report {
 
   comment           Comment   @relation(fields: [comment_id], references: [id])
   reporter          User      @relation("UserReports", fields: [reporter_user_id], references: [anilist_user_id])
-  comment           Comment   @relation("UserReports", fields: [comment_id], references: [id])
 
   @@unique([comment_id, reporter_user_id])
   @@map("reports")
@@ -163,7 +162,7 @@ model Warning {
   created_at        DateTime @default(now())
 
   warned_user       User      @relation("WarningsReceived", fields: [warned_by], references: [anilist_user_id])
-  warner            User      @relation("WarningsGiven", fields: [warned_by], references: [anilist_user_id])
+  warner            User      @relation("WarningsGiven", fields: [warned_by], references: [anilist_user_id], map: "warnings_given_warner")
 
   @@map("warnings")
 }
@@ -184,8 +183,8 @@ model RoleChange {
 }
 
 model CommentTag {
-  id                String    @id @default(cuid())
-  comment_id        String
+  id                Int    @id @default(autoincrement())
+  comment_id        Int
   tag_type          TagType
   tagged_by_user_id Int
   created_at        DateTime @default(now())
