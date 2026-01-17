@@ -4,7 +4,7 @@ import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { VoteRequest, ApiResponse } from '@/lib/types';
 import { logUserAction } from '@/lib/audit';
-import { calculateWilsonScore } from '@/lib/ranking';
+import { calculateUserLevel } from '@/lib/ranking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -131,20 +131,20 @@ export async function POST(request: NextRequest) {
       _count: { vote_type: true }
     });
 
-    const upvotes = voteCounts.find(v => v.vote_type === 1)?._count.vote_type || 0;
-    const downvotes = voteCounts.find(v => v.vote_type === -1)?._count.vote_type || 0;
-    const totalVotes = upvotes + downvotes;
+    const upvotesCount = voteCounts.find(v => v.vote_type === 1)?._count.vote_type || 0;
+    const downvotesCount = voteCounts.find(v => v.vote_type === -1)?._count.vote_type || 0;
+    const totalVotes = upvotesCount + downvotesCount;
 
     await db.comment.update({
       where: { id: comment_id },
       data: {
-        upvotes,
-        downvotes,
+        upvotes: upvotesCount,
+        downvotes: downvotesCount,
         total_votes: totalVotes
       }
     });
 
-    // 2. LIVE RANKING UPDATE: Update Author's lifetime stats and Wilson Score
+    // 2. LIVE RANKING UPDATE: Update Author's lifetime stats
     const updatedAuthor = await db.user.update({
       where: { anilist_user_id: comment.anilist_user_id },
       data: {
@@ -153,34 +153,34 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Calculate new rank using Wilson Score logic
-    const newRankScore = calculateWilsonScore(
+    // Calculate new Level (0-100) instead of raw score
+    const newUserLevel = calculateUserLevel(
       Math.max(0, updatedAuthor.total_upvotes),
       Math.max(0, updatedAuthor.total_downvotes)
     );
 
-    // Save the new rank score to the author
+    // Save as rank_score (Int) in DB
     await db.user.update({
       where: { anilist_user_id: updatedAuthor.anilist_user_id },
-      data: { rank_score: newRankScore }
+      data: { rank_score: newUserLevel }
     });
 
     // Log the action
     await logUserAction(request, anilistUser.id, 'VOTE', 'comment', String(comment_id), {
       vote_type: newVoteType,
       previous_vote_type: existingVote?.vote_type || null,
-      author_rank_after: newRankScore
+      author_level_after: newUserLevel
     });
 
     return NextResponse.json<ApiResponse>({
       success: true,
       data: {
         vote_type: newVoteType || 0,
-        upvotes,
-        downvotes,
+        upvotes: upvotesCount,
+        downvotes: downvotesCount,
         total_votes: totalVotes,
         user_vote_type: newVoteType,
-        author_rank_score: newRankScore
+        author_level: newUserLevel
       },
       message: newVoteType 
         ? `Vote ${newVoteType === 1 ? 'up' : 'down'} recorded successfully` 
@@ -225,6 +225,8 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
+    const commentIdNum = parseInt(commentId, 10);
+
     const authHeader = request.headers.get('authorization');
     let currentUserId: number | null = null;
     
@@ -239,7 +241,7 @@ export async function GET(request: NextRequest) {
     }
 
     const comment = await db.comment.findUnique({
-      where: { id: parseInt(commentId) }
+      where: { id: commentIdNum }
     });
 
     if (!comment) {
@@ -254,7 +256,7 @@ export async function GET(request: NextRequest) {
       const userVoteRecord = await db.vote.findUnique({
         where: {
           comment_id_user_id: {
-            comment_id: parseInt(commentId),
+            comment_id: commentIdNum,
             user_id: currentUserId
           }
         }
@@ -264,7 +266,7 @@ export async function GET(request: NextRequest) {
 
     const voteCounts = await db.vote.groupBy({
       by: ['vote_type'],
-      where: { comment_id: parseInt(commentId) },
+      where: { comment_id: commentIdNum },
       _count: { vote_type: true }
     });
 
@@ -274,7 +276,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json<ApiResponse>({
       success: true,
       data: {
-        comment_id: parseInt(commentId),
+        comment_id: commentIdNum,
         upvotes,
         downvotes,
         total_votes: upvotes + downvotes,
