@@ -1,5 +1,6 @@
 /**
  * Calculates the Wilson Score and maps it to a Level (0-100).
+ * Factoring in total comments ensures that participation also drives rank.
  */
 
 /**
@@ -18,30 +19,24 @@ export function calculateWilsonScore(upvotes: number, downvotes: number): number
 }
 
 /**
- * 2. Maps the Wilson Score to a Level (0-100).
- * Uses a power curve to make higher levels significantly harder to reach.
- * Level 0 = No rank shown.
+ * 2. Maps quality (Wilson Score) and quantity (Comment Count) to a Level (0-100).
  */
-export function calculateUserLevel(upvotes: number, downvotes: number): number {
-  const score = calculateWilsonScore(upvotes, downvotes);
+export function calculateUserLevel(upvotes: number, downvotes: number, commentCount: number): number {
+  const qualityScore = calculateWilsonScore(upvotes, downvotes);
   
-  if (score <= 0) return 0;
+  if (qualityScore <= 0 || commentCount <= 0) return 0;
 
-  // The exponent (3.5) determines the "hardness". 
-  // A higher exponent makes reaching Level 100 much harder.
-  // We use Math.pow(score, 3.5) * 100 to scale the 0-1 score to 0-100.
-  const level = Math.floor(Math.pow(score, 3.5) * 100);
+  /**
+   * Participation Factor:
+   * We use a logarithmic scale for comments so that going from 1 to 100 comments 
+   * helps a lot, but going from 10,000 to 10,100 doesn't break the level system.
+   */
+  const participationFactor = Math.log10(commentCount + 1) / 3; // Scales roughly 0 to 1 for ~1000 comments
+  
+  // Combine Quality and Participation
+  // Exponent (3.0) ensures Level 100 is very hard to reach.
+  const rawLevel = Math.pow(qualityScore, 3.0) * participationFactor * 100;
 
   // Clamp the result between 0 and 100
-  return Math.min(Math.max(level, 0), 100);
+  return Math.min(Math.max(Math.floor(rawLevel), 0), 100);
 }
-
-/**
- * Example of how this scales:
- * Wilson Score 0.1  => Level 0
- * Wilson Score 0.5  => Level 8
- * Wilson Score 0.7  => Level 28
- * Wilson Score 0.85 => Level 56
- * Wilson Score 0.95 => Level 83
- * Wilson Score 0.99 => Level 96
- */
