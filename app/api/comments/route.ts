@@ -3,6 +3,7 @@ import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { CreateCommentRequest, Comment, ApiResponse, NestedCommentsResponse } from '@/lib/types';
+import { calculateUserLevel } from '@/lib/ranking';
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,7 +42,6 @@ export async function GET(request: NextRequest) {
         const anilistUser = await verifyAniListToken(token);
         userId = anilistUser.id;
       } catch (error) {
-        // Token verification failed, but allow read access
         console.warn('Optional auth failed:', error);
       }
     }
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     const whereClause: any = {
       media_id: mediaIdNum,
       media_type: mediaType,
-      parent_comment_id: parentId || null,
+      parent_comment_id: parentId ? parseInt(parentId) : null,
       depth_level: { lte: maxDepth }
     };
 
@@ -84,7 +84,8 @@ export async function GET(request: NextRequest) {
             profile_picture_url: true,
             is_mod: true,
             is_admin: true,
-            role: true
+            role: true,
+            rank_score: true
           }
         },
         votes: userId ? {
@@ -103,14 +104,12 @@ export async function GET(request: NextRequest) {
       take: limit
     });
 
-    // Get total count
     const total = await db.comment.count({
       where: whereClause
     });
 
     // Format response with nested structure
     const formattedComments = await Promise.all(comments.map(async (comment) => {
-      // Get nested replies recursively
       const nestedReplies = await getNestedReplies(comment.id, userId, maxDepth, 1, includeDeleted);
       
       return {
@@ -140,13 +139,13 @@ export async function GET(request: NextRequest) {
         is_mod: comment.user?.is_mod || false,
         is_admin: comment.user?.is_admin || false,
         role: comment.user?.role,
+        rank_score: comment.user?.rank_score || 0,
         tags: comment.tags,
         reply_count: comment._count.replies,
         replies: nestedReplies
       };
     }));
 
-    // Calculate maximum depth in response
     const responseMaxDepth = Math.max(...formattedComments.map(c => 
       Math.max(c.depth_level, ...getAllDepths(c.replies || []))
     ), 0);
@@ -197,7 +196,8 @@ async function getNestedReplies(
           profile_picture_url: true,
           is_mod: true,
           is_admin: true,
-          role: true
+          role: true,
+          rank_score: true
         }
       },
       votes: userId ? {
@@ -244,6 +244,7 @@ async function getNestedReplies(
       is_mod: reply.user?.is_mod || false,
       is_admin: reply.user?.is_admin || false,
       role: reply.user?.role,
+      rank_score: reply.user?.rank_score || 0,
       tags: reply.tags,
       reply_count: reply._count.replies,
       replies: nestedReplies
@@ -278,7 +279,7 @@ export async function POST(request: NextRequest) {
     // Upsert user to get current permissions and status
     const user = await upsertUser(anilistUser, db);
 
-    // NEW: Mute/Warn Punishment Check
+    // Mute/Warn Punishment Check
     if (user.is_muted) {
       if (user.mute_expires && new Date() < user.mute_expires) {
         return NextResponse.json<ApiResponse>({ 
@@ -286,7 +287,7 @@ export async function POST(request: NextRequest) {
           error: `You are currently muted from posting until ${user.mute_expires.toLocaleString()}` 
         }, { status: 403 });
       } else {
-        // Mute expired, clean up status in background/database
+        // Mute expired, clean up status
         await db.user.update({
           where: { anilist_user_id: user.anilist_user_id },
           data: { is_muted: false, mute_expires: null }
@@ -318,7 +319,6 @@ export async function POST(request: NextRequest) {
     let rootCommentId: number | null = null;
     let depthLevel = 0;
 
-    // Handle parent comment logic for nested replies
     if (parent_comment_id) {
       const parentComment = await db.comment.findUnique({
         where: { id: parent_comment_id }
@@ -349,7 +349,7 @@ export async function POST(request: NextRequest) {
       depthLevel = parentComment.depth_level + 1;
     }
 
-    // Create comment with nested support
+    // Create comment
     const newComment = await db.comment.create({
       data: {
         media_id: media_id,
@@ -374,6 +374,28 @@ export async function POST(request: NextRequest) {
         }
       }
     });
+
+    // LIVE LEVEL UPDATE: Every new comment increases engagement baseline
+    const authorWithStats = await db.user.findUnique({
+      where: { anilist_user_id: user.anilist_user_id },
+      include: {
+        _count: { select: { comments: { where: { is_deleted: false } } } }
+      }
+    });
+
+    let newRankScore = 0;
+    if (authorWithStats) {
+      newRankScore = calculateUserLevel(
+        authorWithStats.total_upvotes,
+        authorWithStats.total_downvotes,
+        authorWithStats._count.comments
+      );
+
+      await db.user.update({
+        where: { anilist_user_id: user.anilist_user_id },
+        data: { rank_score: newRankScore }
+      });
+    }
 
     // Format response
     const formattedComment = {
@@ -400,6 +422,7 @@ export async function POST(request: NextRequest) {
       is_mod: newComment.user.is_mod,
       is_admin: newComment.user.is_admin,
       role: newComment.user.role,
+      rank_score: newRankScore,
       tags: [],
       reply_count: 0,
       replies: []
