@@ -68,7 +68,6 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleBan(request: NextRequest, user: any, anilistUser: any) {
-  // Check if user can ban (super admin can always ban)
   if (!isSuperAdmin(user) && !canBanUser(user)) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -79,7 +78,6 @@ async function handleBan(request: NextRequest, user: any, anilistUser: any) {
   const body: CreateBanRequest = await request.json();
   const { user_id, reason, duration_hours, is_permanent } = body;
 
-  // Validate input
   if (!user_id || !reason || reason.trim().length === 0) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -87,14 +85,6 @@ async function handleBan(request: NextRequest, user: any, anilistUser: any) {
     }, { status: 400 });
   }
 
-  if (reason.length > 200) {
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Reason too long (max 200 characters)'
-    }, { status: 400 });
-  }
-
-  // Cannot ban yourself
   if (user_id === anilistUser.id) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -102,7 +92,6 @@ async function handleBan(request: NextRequest, user: any, anilistUser: any) {
     }, { status: 400 });
   }
 
-  // Check if target user exists
   const targetUser = await db.user.findUnique({
     where: { anilist_user_id: user_id }
   });
@@ -114,9 +103,8 @@ async function handleBan(request: NextRequest, user: any, anilistUser: any) {
     }, { status: 404 });
   }
 
-  // Cannot ban users with equal or higher privileges (unless you're super admin)
   if (!isSuperAdmin(user)) {
-    if (targetUser.is_mod || targetUser.is_admin) {
+    if (targetUser.role === 'ADMIN' || targetUser.role === 'MODERATOR' || targetUser.role === 'SUPER_ADMIN') {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Cannot ban users with equal or higher privileges'
@@ -124,14 +112,12 @@ async function handleBan(request: NextRequest, user: any, anilistUser: any) {
     }
   }
 
-  // Calculate expiration date
   let expires_at = null;
   if (!is_permanent && duration_hours) {
     expires_at = new Date();
     expires_at.setHours(expires_at.getHours() + duration_hours);
   }
 
-  // Create ban
   const newBan = await db.ban.create({
     data: {
       user_id: user_id,
@@ -143,7 +129,6 @@ async function handleBan(request: NextRequest, user: any, anilistUser: any) {
     }
   });
 
-  // Update user's ban status
   await db.user.update({
     where: { anilist_user_id: user_id },
     data: {
@@ -155,20 +140,12 @@ async function handleBan(request: NextRequest, user: any, anilistUser: any) {
 
   return NextResponse.json<ApiResponse>({
     success: true,
-    data: {
-      ban_id: newBan.id,
-      user_id: user_id,
-      banned_by: anilistUser.id,
-      reason: newBan.reason,
-      is_permanent: newBan.is_permanent,
-      expires_at: newBan.expires_at
-    },
+    data: { ban_id: newBan.id, user_id, expires_at },
     message: 'User banned successfully'
   });
 }
 
 async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
-  // Check if user can warn (super admin can always warn)
   if (!isSuperAdmin(user) && !canWarnUser(user)) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -179,7 +156,6 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
   const body: CreateWarningRequest = await request.json();
   const { user_id, reason, description } = body;
 
-  // Validate input
   if (!user_id || !reason || reason.trim().length === 0) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -187,21 +163,6 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
     }, { status: 400 });
   }
 
-  if (reason.length > 200) {
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Reason too long (max 200 characters)'
-    }, { status: 400 });
-  }
-
-  if (description && description.length > 500) {
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Description too long (max 500 characters)'
-    }, { status: 400 });
-  }
-
-  // Cannot warn yourself
   if (user_id === anilistUser.id) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -209,7 +170,6 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
     }, { status: 400 });
   }
 
-  // Check if target user exists
   const targetUser = await db.user.findUnique({
     where: { anilist_user_id: user_id }
   });
@@ -221,9 +181,8 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
     }, { status: 404 });
   }
 
-  // Cannot warn users with equal or higher privileges (unless you're super admin)
   if (!isSuperAdmin(user)) {
-    if (targetUser.is_mod || targetUser.is_admin) {
+    if (targetUser.role === 'ADMIN' || targetUser.role === 'MODERATOR' || targetUser.role === 'SUPER_ADMIN') {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Cannot warn users with equal or higher privileges'
@@ -231,23 +190,50 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
     }
   }
 
-  // Create warning
+  // Logic for Automated Punishment
+  const currentWarns = targetUser.warning_count || 0;
+  const newWarnCount = currentWarns + 1;
+  
+  let muteExpires: Date | null = null;
+  let resetWarns = false;
+  let systemActionNote = "";
+
+  // 6 warns = 1 week mute
+  if (newWarnCount >= 6) {
+    muteExpires = new Date();
+    muteExpires.setDate(muteExpires.getDate() + 7);
+    resetWarns = true;
+    systemActionNote = " (Threshold reached: 1 week mute applied)";
+  } 
+  // 3 warns = 1 day mute
+  else if (newWarnCount >= 3) {
+    muteExpires = new Date();
+    muteExpires.setDate(muteExpires.getDate() + 1);
+    resetWarns = true;
+    systemActionNote = " (Threshold reached: 1 day mute applied)";
+  }
+
+  // Create the warning record
   const newWarning = await db.warning.create({
     data: {
       user_id: user_id,
       warned_by: anilistUser.id,
-      reason: reason.trim(),
+      reason: reason.trim() + systemActionNote,
       description: description?.trim() || null
     }
   });
 
-  // Update user's warning count
+  // Update User state
   await db.user.update({
     where: { anilist_user_id: user_id },
     data: {
-      warning_count: {
-        increment: 1
-      }
+      // warning_count tracks active warns for next punishment threshold
+      warning_count: resetWarns ? 0 : newWarnCount,
+      // total_warns is lifetime history (optional, if you want to keep a permanent count)
+      total_warns: { increment: 1 },
+      // Apply mute if threshold met
+      is_muted: !!muteExpires,
+      mute_expires: muteExpires
     }
   });
 
@@ -255,12 +241,10 @@ async function handleWarn(request: NextRequest, user: any, anilistUser: any) {
     success: true,
     data: {
       warning_id: newWarning.id,
-      user_id: user_id,
-      warned_by: anilistUser.id,
-      reason: newWarning.reason,
-      description: newWarning.description
+      new_warn_count: resetWarns ? 0 : newWarnCount,
+      muted_until: muteExpires
     },
-    message: 'User warned successfully'
+    message: `User warned successfully${systemActionNote}`
   });
 }
 
@@ -268,7 +252,6 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
   const body: AdminActionRequest = await request.json();
   const { user_id, role } = body;
 
-  // Validate input
   if (!user_id || !role || !['mod', 'admin'].includes(role)) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -276,7 +259,6 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
     }, { status: 400 });
   }
 
-  // Cannot change your own role
   if (user_id === anilistUser.id) {
     return NextResponse.json<ApiResponse>({
       success: false,
@@ -284,7 +266,6 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
     }, { status: 400 });
   }
 
-  // Check if target user exists
   const targetUser = await db.user.findUnique({
     where: { anilist_user_id: user_id }
   });
@@ -296,48 +277,23 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
     }, { status: 404 });
   }
 
-  // Map role string to Role enum
   const newRole = role === 'admin' ? 'ADMIN' : 'MODERATOR';
-  const userRole = role === 'admin' ? 'ADMIN' : 'MODERATOR';
 
-  // Check if user can promote/demote (super admin can always do this)
-  if (!isSuperAdmin(user) && (!targetUser || !canPromoteDemote(user, targetUser, newRole as any))) {
+  if (!isSuperAdmin(user) && !canPromoteDemote(user, targetUser, newRole as any)) {
     return NextResponse.json<ApiResponse>({
       success: false,
       error: 'Insufficient permissions to change user roles'
     }, { status: 403 });
   }
 
-  // Only admins can manage admin roles (super admin can do anything)
-  if (role === 'admin' && !user.is_admin && !isSuperAdmin(user)) {
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Only admins can manage admin roles'
-    }, { status: 403 });
-  }
-
-  // Cannot modify users with equal or higher privileges (unless you're super admin)
-  if (!isSuperAdmin(user)) {
-    if (targetUser.is_mod || targetUser.is_admin) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Cannot modify users with equal or higher privileges'
-      }, { status: 403 });
-    }
-  }
-
-  // Prepare update data - CRITICAL FIX: Update role field properly
-  let updateData: any = {
-    updated_at: new Date()
-  };
+  let updateData: any = { updated_at: new Date() };
 
   if (role === 'admin') {
     if (action === 'promote') {
       updateData.role = 'ADMIN';
       updateData.is_admin = true;
-      updateData.is_mod = true; // Admins are also mods
+      updateData.is_mod = true;
     } else {
-      // Demote from admin
       updateData.role = 'USER';
       updateData.is_admin = false;
       updateData.is_mod = false;
@@ -346,17 +302,13 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
     if (action === 'promote') {
       updateData.role = 'MODERATOR';
       updateData.is_mod = true;
-      // Don't change admin status when promoting to mod
     } else {
-      // Demote from mod
       updateData.role = 'USER';
       updateData.is_mod = false;
-      // Also clear admin if they were an admin
       updateData.is_admin = false;
     }
   }
 
-  // Update user role in database
   const updatedUser = await db.user.update({
     where: { anilist_user_id: user_id },
     data: updateData
@@ -365,12 +317,10 @@ async function handleRoleChange(request: NextRequest, user: any, anilistUser: an
   return NextResponse.json<ApiResponse>({
     success: true,
     data: {
-      user_id: user_id,
-      action: action,
-      role: role,
-      is_mod: updatedUser.is_mod,
-      is_admin: updatedUser.is_admin,
-      db_role: updatedUser.role // Return the actual database role for verification
+      user_id,
+      action,
+      role,
+      db_role: updatedUser.role
     },
     message: `User ${action}d to ${role} successfully`
   });
