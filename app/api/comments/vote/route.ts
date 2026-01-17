@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/api/db/connection';
 import { verifyAniListToken, upsertUser } from '@/app/api/auth/verify';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { VoteRequest, ApiResponse, VoterListResponse } from '@/lib/types';
+import { VoteRequest, ApiResponse } from '@/lib/types';
 import { logUserAction } from '@/lib/audit';
+import { calculateWilsonScore } from '@/lib/ranking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,16 +43,13 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Check if comment exists (allow voting on replies in nested threads)
+    // Check if comment exists
     const comment = await db.comment.findUnique({
       where: { id: comment_id },
       include: {
         user: {
           select: {
-            anilist_user_id: true,
-            is_mod: true,
-            is_admin: true,
-            role: true
+            anilist_user_id: true
           }
         }
       }
@@ -64,7 +62,6 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
 
-    // Allow voting on replies even if parent is deleted, but not on deleted comments themselves
     if (comment.is_deleted) {
       return NextResponse.json<ApiResponse>({
         success: false,
@@ -72,10 +69,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // ALL users can vote on all comments including their own
-    // No restriction on voting on own comments
-
-    // Get existing vote
+    // Get existing vote to determine stat changes for the author
     const existingVote = await db.vote.findUnique({
       where: {
         comment_id_user_id: {
@@ -85,12 +79,13 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    let upvoteChange = 0;
+    let downvoteChange = 0;
     let newVoteType: number | null = vote_type;
-    
-    // Implement vote toggle logic: up → neutral → down → up
+
     if (existingVote) {
       if (existingVote.vote_type === vote_type) {
-        // Same vote: remove vote (go to neutral)
+        // REMOVE VOTE
         await db.vote.delete({
           where: {
             comment_id_user_id: {
@@ -99,9 +94,11 @@ export async function POST(request: NextRequest) {
             }
           }
         });
+        upvoteChange = vote_type === 1 ? -1 : 0;
+        downvoteChange = vote_type === -1 ? -1 : 0;
         newVoteType = null;
       } else {
-        // Different vote: change vote type
+        // SWAP VOTE (e.g., Up to Down)
         await db.vote.update({
           where: {
             comment_id_user_id: {
@@ -109,13 +106,13 @@ export async function POST(request: NextRequest) {
               user_id: anilistUser.id
             }
           },
-          data: {
-            vote_type: vote_type
-          }
+          data: { vote_type: vote_type }
         });
+        upvoteChange = vote_type === 1 ? 1 : -1;
+        downvoteChange = vote_type === -1 ? 1 : -1;
       }
     } else {
-      // No existing vote: create new vote
+      // NEW VOTE
       await db.vote.create({
         data: {
           comment_id: comment_id,
@@ -123,22 +120,21 @@ export async function POST(request: NextRequest) {
           vote_type: vote_type
         }
       });
+      upvoteChange = vote_type === 1 ? 1 : 0;
+      downvoteChange = vote_type === -1 ? 1 : 0;
     }
 
-    // Update comment vote counts with optimized query
+    // 1. Update comment vote cache
     const voteCounts = await db.vote.groupBy({
       by: ['vote_type'],
       where: { comment_id: comment_id },
-      _count: {
-        vote_type: true
-      }
+      _count: { vote_type: true }
     });
 
     const upvotes = voteCounts.find(v => v.vote_type === 1)?._count.vote_type || 0;
     const downvotes = voteCounts.find(v => v.vote_type === -1)?._count.vote_type || 0;
     const totalVotes = upvotes + downvotes;
 
-    // Update comment with new vote counts
     await db.comment.update({
       where: { id: comment_id },
       data: {
@@ -148,12 +144,32 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Log vote action
+    // 2. LIVE RANKING UPDATE: Update Author's lifetime stats and Wilson Score
+    const updatedAuthor = await db.user.update({
+      where: { anilist_user_id: comment.anilist_user_id },
+      data: {
+        total_upvotes: { increment: upvoteChange },
+        total_downvotes: { increment: downvoteChange }
+      }
+    });
+
+    // Calculate new rank using Wilson Score logic
+    const newRankScore = calculateWilsonScore(
+      Math.max(0, updatedAuthor.total_upvotes),
+      Math.max(0, updatedAuthor.total_downvotes)
+    );
+
+    // Save the new rank score to the author
+    await db.user.update({
+      where: { anilist_user_id: updatedAuthor.anilist_user_id },
+      data: { rank_score: newRankScore }
+    });
+
+    // Log the action
     await logUserAction(request, anilistUser.id, 'VOTE', 'comment', String(comment_id), {
       vote_type: newVoteType,
       previous_vote_type: existingVote?.vote_type || null,
-      comment_depth: comment.depth_level,
-      total_votes_after: totalVotes
+      author_rank_after: newRankScore
     });
 
     return NextResponse.json<ApiResponse>({
@@ -163,7 +179,8 @@ export async function POST(request: NextRequest) {
         upvotes,
         downvotes,
         total_votes: totalVotes,
-        user_vote_type: newVoteType
+        user_vote_type: newVoteType,
+        author_rank_score: newRankScore
       },
       message: newVoteType 
         ? `Vote ${newVoteType === 1 ? 'up' : 'down'} recorded successfully` 
@@ -208,7 +225,6 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Get auth token (optional for read access)
     const authHeader = request.headers.get('authorization');
     let currentUserId: number | null = null;
     
@@ -218,26 +234,12 @@ export async function GET(request: NextRequest) {
         const anilistUser = await verifyAniListToken(token);
         currentUserId = anilistUser.id;
       } catch (error) {
-        // Token verification failed, but allow read access
         console.warn('Optional auth failed:', error);
       }
     }
 
-    // Check if comment exists
     const comment = await db.comment.findUnique({
-      where: { id: commentId },
-      include: {
-        user: {
-          select: {
-            anilist_user_id: true,
-            username: true,
-            profile_picture_url: true,
-            is_mod: true,
-            is_admin: true,
-            role: true
-          }
-        }
-      }
+      where: { id: parseInt(commentId) }
     });
 
     if (!comment) {
@@ -247,13 +249,12 @@ export async function GET(request: NextRequest) {
       }, { status: 404 });
     }
 
-    // Get current user's vote if authenticated
     let userVote: number | null = null;
     if (currentUserId) {
       const userVoteRecord = await db.vote.findUnique({
         where: {
           comment_id_user_id: {
-            comment_id: commentId,
+            comment_id: parseInt(commentId),
             user_id: currentUserId
           }
         }
@@ -261,26 +262,22 @@ export async function GET(request: NextRequest) {
       userVote = userVoteRecord?.vote_type || null;
     }
 
-    // Get vote counts
     const voteCounts = await db.vote.groupBy({
       by: ['vote_type'],
-      where: { comment_id: commentId },
-      _count: {
-        vote_type: true
-      }
+      where: { comment_id: parseInt(commentId) },
+      _count: { vote_type: true }
     });
 
     const upvotes = voteCounts.find(v => v.vote_type === 1)?._count.vote_type || 0;
     const downvotes = voteCounts.find(v => v.vote_type === -1)?._count.vote_type || 0;
-    const totalVotes = upvotes + downvotes;
 
     return NextResponse.json<ApiResponse>({
       success: true,
       data: {
-        comment_id: commentId,
+        comment_id: parseInt(commentId),
         upvotes,
         downvotes,
-        total_votes: totalVotes,
+        total_votes: upvotes + downvotes,
         user_vote_type: userVote,
         is_deleted: comment.is_deleted
       }
