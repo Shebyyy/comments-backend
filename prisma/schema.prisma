@@ -32,6 +32,15 @@ model User {
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
 
+  warning_count     Int       @default(0) // Active warns (resets after mute)
+  total_warns       Int       @default(0) // Lifetime history
+  is_muted          Boolean   @default(false)
+  mute_expires      DateTime?
+  
+  rank_score        Float     @default(0)
+  total_upvotes     Int       @default(0)
+  total_downvotes   Int       @default(0)
+
   comments          Comment[] @relation("UserComments")
   votes             Vote[] @relation("UserVotes")
   reports           Report[] @relation("UserReports")
