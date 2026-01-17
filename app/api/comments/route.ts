@@ -173,12 +173,12 @@ export async function GET(request: NextRequest) {
 }
 
 async function getNestedReplies(
-  parentId: string, 
+  parentId: number, 
   userId: number | null, 
   maxDepth: number, 
   currentDepth: number,
   includeDeleted: boolean
-): Promise<Comment[]> {
+): Promise<any[]> {
   if (currentDepth >= maxDepth) return [];
 
   const replies = await db.comment.findMany({
@@ -251,7 +251,7 @@ async function getNestedReplies(
   }));
 }
 
-function getAllDepths(comments: Comment[]): number[] {
+function getAllDepths(comments: any[]): number[] {
   const depths: number[] = [];
   for (const comment of comments) {
     depths.push(comment.depth_level);
@@ -275,11 +275,27 @@ export async function POST(request: NextRequest) {
     const token = authHeader.replace('Bearer ', '');
     const anilistUser = await verifyAniListToken(token);
     
+    // Upsert user to get current permissions and status
+    const user = await upsertUser(anilistUser, db);
+
+    // NEW: Mute/Warn Punishment Check
+    if (user.is_muted) {
+      if (user.mute_expires && new Date() < user.mute_expires) {
+        return NextResponse.json<ApiResponse>({ 
+          success: false, 
+          error: `You are currently muted from posting until ${user.mute_expires.toLocaleString()}` 
+        }, { status: 403 });
+      } else {
+        // Mute expired, clean up status in background/database
+        await db.user.update({
+          where: { anilist_user_id: user.anilist_user_id },
+          data: { is_muted: false, mute_expires: null }
+        });
+      }
+    }
+    
     // Check rate limit
     await checkRateLimit(anilistUser.id, 'comment', db);
-
-    // Upsert user
-    const user = await upsertUser(anilistUser, db);
 
     const body: CreateCommentRequest = await request.json();
     const { media_id, media_type, content, parent_comment_id } = body;
@@ -299,23 +315,13 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    let rootCommentId: string | null = null;
+    let rootCommentId: number | null = null;
     let depthLevel = 0;
 
     // Handle parent comment logic for nested replies
     if (parent_comment_id) {
       const parentComment = await db.comment.findUnique({
-        where: { id: parent_comment_id },
-        include: {
-          user: {
-            select: {
-              anilist_user_id: true,
-              is_mod: true,
-              is_admin: true,
-              role: true
-            }
-          }
-        }
+        where: { id: parent_comment_id }
       });
 
       if (!parentComment) {
@@ -325,18 +331,11 @@ export async function POST(request: NextRequest) {
         }, { status: 404 });
       }
 
-      // Check depth limit (prevent infinite nesting)
       if (parentComment.depth_level >= 20) {
         return NextResponse.json<ApiResponse>({
           success: false,
           error: 'Maximum nesting depth reached'
         }, { status: 400 });
-      }
-
-      // Users can reply to deleted comments to preserve thread structure
-      if (parentComment.is_deleted) {
-        // Allow reply but note it's to a deleted comment
-        console.log(`User ${anilistUser.id} replying to deleted comment ${parent_comment_id}`);
       }
 
       if (parentComment.media_id !== media_id) {
